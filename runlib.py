@@ -26,6 +26,9 @@ try:
     pyro_available = True
 except:
     pyro_available = False
+finally:
+    Pyro4.config.SERVERTYPE = "multiplex"
+
 
 def get_pyro4():#{{{
     print 'Pyro4 has not been found'
@@ -121,6 +124,7 @@ class Processor(object):
                     self.jobs = Pyro4.Proxy(uri)
                     while not self.jobs.jobsEmpty():
                         self.execute()
+                    print 'No job left.'
                 except Pyro4.errors.CommunicationError:
                     print 'Cannot connect to %s' % (uri)
                     print 'You may want to remove %s if you are sure that the server is down' % (server_file)
