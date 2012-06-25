@@ -24,10 +24,9 @@ import socket
 try:
     import Pyro4
     pyro_available = True
+    Pyro4.config.SERVERTYPE = "multiplex"
 except:
     pyro_available = False
-finally:
-    Pyro4.config.SERVERTYPE = "multiplex"
 
 
 def get_pyro4():#{{{
