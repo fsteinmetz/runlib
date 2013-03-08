@@ -1,0 +1,51 @@
+#!/usr/bin/env python
+# vim:fileencoding=utf-8:filetype=python
+
+
+
+
+from os import system
+from sys import argv
+from tmpfiles import TmpInput, TmpOutput
+from string import join
+
+
+if __name__ == '__main__':
+
+    '''
+    locally cmd [arguments]
+
+    does the following:
+        * replace each argument starting with "in:" by a TmpInput
+        * replace each argument starting with "out:" by a TmpOutput
+        * execute the command line
+        * "finish" all the arguments
+    '''
+
+    arg = []
+    tmpfiles = []
+    for a in argv[1:]:
+        if a.startswith('in:'):
+            b = TmpInput(a[3:])
+            arg.append(b)
+            tmpfiles.append(b)
+
+        elif a.startswith('out:'):
+            b = TmpOutput(a[4:])
+            arg.append(b)
+            tmpfiles.append(b)
+
+        else:
+            arg.append(a)
+
+
+    # execute the command
+    cmd = join(arg)
+    system(cmd)
+
+    # finish the temporary files
+    for i in tmpfiles:
+        i.finish()
+
+
+
