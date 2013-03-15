@@ -37,7 +37,6 @@ class Tmp(str):
         return self
 
     def clean(self):
-        print 'clean', self
 
         if self.__clean:
             warnings.warn('Warning, {} has already been cleaned'.format(self))
@@ -55,7 +54,7 @@ class Tmp(str):
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
-            warnings.warn('Clean has not been called for file "{}"'.format(self))
+            print('Warning: clean has not been called for file "{}"'.format(self))
 
     @staticmethod
     def cleanAll():
@@ -149,7 +148,6 @@ class TmpInput(str):
         return self
 
     def clean(self):
-        print 'clean', self
 
         if self.__clean:
             warnings.warn('Warning, {} has already been cleaned'.format(self))
@@ -169,7 +167,7 @@ class TmpInput(str):
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
-            warnings.warn('Clean has not been called for file "{}"\ntemporary file "{}" may remain.'.format(self.__filename, self))
+            print('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self))
 
     @staticmethod
     def cleanAll():
@@ -216,7 +214,7 @@ class TmpOutput(str):
                 raise IOError('File "{}" exists'.format(filename))
 
         # create output directory if necessary
-        if not exists(dirname(filename)):
+        if (not exists(dirname(filename))) and (dirname(filename) != ''):
             system('mkdir -p {}'.format(dirname(filename)))
 
         # determine temporary file name
@@ -246,7 +244,6 @@ class TmpOutput(str):
         return self
 
     def clean(self):
-        print 'clean', self.__tmpfile
 
         if self.__clean:
             warnings.warn('Warning, {} has already been cleaned'.format(self))
@@ -279,7 +276,7 @@ class TmpOutput(str):
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
-            warnings.warn('Clean has not been called for file "{}"\ntemporary file "{}" may remain.'.format(self.__filename, self))
+            print('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self))
 
     @staticmethod
     def cleanAll():
