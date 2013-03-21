@@ -3,13 +3,49 @@
 
 
 
+'''
+A module to easily manage temporary files
+
+    1) Temporary input files (TmpInput)
+       These files are copied locally, used as an input for the processing,
+       then removed
+
+    2) Temporary output files (TmpOutput)
+       These temporary files are created, and copied upon success to their
+       final destination
+
+    3) Pure temporary files (Tmp)
+       Pure temporary files are created from scratch, and removed after use
+
+    These classes contain the following features:
+        - Ensure temporary files unicity by using unique temporary directories
+        - Check free disk space on start
+        - Automatic cleanup of all temporary files via static method
+          Tmp.cleanAll() (call this at the end of your script)
+
+'''
+
+
+
+
 from os.path import exists, basename, join, dirname
-from os import system
+from os import system, rmdir, statvfs
 import tempfile
 import warnings
+import subprocess
 
 
 TMPLIST = [] # a list of all 'dirty' tmpfiles
+
+
+
+def df(path):
+    '''
+    get free disk space in MB
+    '''
+    res = statvfs(path)
+    available = int(res.f_frsize*res.f_bfree/(1024.**2))
+    return available
 
 
 def remove(filename, verbose=False):
@@ -23,15 +59,40 @@ def remove(filename, verbose=False):
 class Tmp(str):
     '''
     A simple temporary file created by the user, removed afterwards
+
+    Parameters:
+        * tmpfile
+          The temporary file name
+          - If it is a single file name (without directory), it will be
+            initialized in the temporary directory
+          - If it is a full file name, it will remain as-is
+        * tmpdir
+          In previous 1st case, this determines the temporary directory to use
+        * verbose
+        * freespace: minimum free space
+
     '''
     def __new__(cls,
             tmpfile,
             tmpdir='/tmp/',
-            verbose=False):
+            verbose=False,
+            freespace=1000):
+
         if dirname(tmpfile) == '':
-            tmpfile = join(tmpdir, tmpfile)
+            # check free disk space
+            if (freespace > 0) and (df(tmpdir) < freespace):
+                raise IOError('Not enough free space in {} ({} MB remaining, {} MB required)'.format(
+                    tmpdir, df(tmpdir), freespace))
+
+            tmpd = tempfile.mkdtemp(dir=tmpdir, prefix='tmpfiles_')
+            tmpfile = join(tmpd, tmpfile)
+        else:
+            tmpd = None
+
+
         self = str.__new__(cls, tmpfile)
         self.__clean = False
+        self.__tmpdir = tmpd
         self.__verbose = verbose
         TMPLIST.append(self)
         return self
@@ -47,6 +108,8 @@ class Tmp(str):
 
         # remove temporary file
         remove(self, verbose=self.__verbose)
+        if self.__tmpdir != None:
+            rmdir(self.__tmpdir)
         self.__clean = True
         TMPLIST.remove(self)
 
@@ -65,6 +128,8 @@ class Tmp(str):
 class TmpInput(str):
     '''
     A class for simplifying the usage of temporary input files.
+
+    Parameters
        * filename: the original file which will be copied locally and
          uncompressed if necessary
        * copy:
@@ -72,11 +137,18 @@ class TmpInput(str):
              => automatic mode, detect gz or bz2, otherwise just cp
            - a string, like "cp {} {}"
              => will be formatted with .format(source, target)
-       * uniq: whether a unique temporary filename should be used
        * rename: a function applied to the basename
          (example: lambda x: x[:-3] to remove extension)
-       * tmpdir: the temporary firectory
-       * overwrite_tmp: whether existing temporary files should be overwritten
+       * tmpdir: the temporary directory
+       * verbose
+
+    Example:
+        f = TmpInput('/path/to/source.data')
+        # the source file is copied to a unique temporary directory
+        # and f contains the file name of the temporary file
+        # <use f as an input to a processor>
+        f.clean() # or Tmp.cleanAll()
+
     '''
 
     # NOTE: subclassing an immutable object requires to use the __new__ method
@@ -84,13 +156,17 @@ class TmpInput(str):
     def __new__(cls,
             filename,
             copy = None,
-            uniq = False,
             rename = lambda x:x,
             tmpdir='/tmp/',
-            overwrite_tmp=True,
-            verbose=False):
+            verbose=False,
+            freespace=1000):
 
         assert exists(tmpdir)
+
+        # check free disk space
+        if (freespace > 0) and (df(tmpdir) < freespace):
+            raise IOError('Not enough free space in {} ({} MB remaining, {} MB required)'.format(
+                tmpdir, df(tmpdir), freespace))
 
         if copy == None:
 
@@ -120,16 +196,10 @@ class TmpInput(str):
 
         # determine temporary file name
         base = rename(basename(filename))
-        if uniq:
-            tmpfile = tempfile.mktemp(suffix='__'+base, dir=tmpdir)
-        else:
-            tmpfile = join(tmpdir, base)
+        tmpd = tempfile.mkdtemp(dir=tmpdir, prefix='tmpfiles_')
+        tmpfile = join(tmpd, base)
 
-        if exists(tmpfile):
-            if overwrite_tmp:
-                remove(tmpfile, verbose=verbose)
-            else:
-                raise IOError('Temporary file "{}" exists.'.format(tmpfile))
+        assert not exists(tmpfile)
 
         # does the copy
         cmd = copy.format(filename, tmpfile)
@@ -139,6 +209,7 @@ class TmpInput(str):
         # create the object and sets its attributes
         self = str.__new__(cls, tmpfile)
         self.__tmpfile = tmpfile
+        self.__tmpdir = tmpd
         self.__filename = filename
         self.__verbose = verbose
         self.__clean = False
@@ -158,10 +229,11 @@ class TmpInput(str):
 
         # remove temporary file
         remove(self.__tmpfile, verbose=self.__verbose)
+        rmdir(self.__tmpdir)
         self.__clean = True
         TMPLIST.remove(self)
 
-    def file(self):
+    def source(self):
         return self.__filename
 
     def __del__(self):
@@ -176,15 +248,28 @@ class TmpInput(str):
 
 class TmpOutput(str):
     '''
-    A class for simplifying the usage of temporary output files.
+    A class intended to simplify the usage of temporary output files
+
+    Parameters:
        * filename: the target file which will be first written locally, then
          copied to the destination
        * copy: a custom command for copying the files
        * uniq: whether a unique temporary filename should be used
        * tmpdir: the temporary firectory
-       * overwrite_tmp: whether existing temporary files should be overwritten
        * overwrite: whether the target should be overwritten
        * verbose
+
+    Example:
+        f = TmpOutput('/path/to/target.data')
+        # at this point, f is the temporary file (non-existing yet)
+        # and f.target() is the target file
+        #
+        # <create file f>
+        #
+        if <f created successfully>:
+            f.move() # move f to target
+        else:
+            f.clean()
     '''
 
     # NOTE: subclassing an immutable object requires to use the __new__ method
@@ -192,13 +277,18 @@ class TmpOutput(str):
     def __new__(cls,
             filename,
             copy = None,
-            uniq = False,
             tmpdir='/tmp/',
-            overwrite_tmp=True,
             overwrite=False,
-            verbose=False):
+            verbose=False,
+            freespace=1000):
 
         assert exists(tmpdir)
+
+        # check free disk space
+        if (freespace > 0) and (df(tmpdir) < freespace):
+            raise IOError('Not enough free space in {} ({} MB remaining, {} MB required)'.format(
+                tmpdir, df(tmpdir), freespace))
+
 
         if copy == None:
             if verbose:
@@ -219,21 +309,15 @@ class TmpOutput(str):
 
         # determine temporary file name
         base = basename(filename)
-        if uniq:
-            tmpfile = tempfile.mktemp(suffix='__'+base, dir=tmpdir)
-        else:
-            tmpfile = join(tmpdir, base)
+        tmpd = tempfile.mkdtemp(dir=tmpdir, prefix='tmpfiles_')
+        tmpfile = join(tmpd, base)
 
-        if exists(tmpfile):
-            if overwrite_tmp:
-                remove(tmpfile, verbose=verbose)
-            else:
-                raise IOError('Temporary file "{}" exists.'.format(tmpfile))
-
+        assert not exists(tmpfile)
 
         # create the object and sets its attributes
         self = str.__new__(cls, tmpfile)
         self.__tmpfile = tmpfile
+        self.__tmpdir = tmpd
         self.__filename = filename
         self.__cp = copy
         self.__verbose = verbose
@@ -254,10 +338,11 @@ class TmpOutput(str):
 
         # remove temporary file
         remove(self.__tmpfile, verbose=self.__verbose)
+        rmdir(self.__tmpdir)
         self.__clean = True
         TMPLIST.remove(self)
 
-    def file(self):
+    def target(self):
         return self.__filename
 
     def move(self):
@@ -282,3 +367,40 @@ class TmpOutput(str):
     def cleanAll():
         while len(TMPLIST) != 0:
             TMPLIST[0].clean()
+
+
+#
+# tests
+#
+def test_tmp():
+    f = Tmp('myfile.tmp', verbose=True, freespace=1)
+    open(f, 'w').write('test')
+    f.clean()
+
+def test_input():
+    # create temporary file
+    tmp = Tmp('myfile.tmp', verbose=True)
+    open(tmp, 'w').write('test')
+
+    #... and use it as a temporary input
+    TmpInput(tmp, verbose=True)
+
+    # clean all
+    Tmp.cleanAll()
+
+def test_output():
+
+    f = Tmp('myfile.tmp') # the target is also a temporary file
+    tmp = TmpOutput(f, verbose=True)
+
+    open(tmp, 'w').write('test')
+
+    tmp.move()
+    Tmp.cleanAll()
+
+
+
+if __name__ == '__main__':
+    test_tmp()
+    test_input()
+    test_output()
