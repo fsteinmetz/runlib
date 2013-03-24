@@ -32,7 +32,6 @@ from os.path import exists, basename, join, dirname
 from os import system, rmdir, statvfs
 import tempfile
 import warnings
-import subprocess
 
 
 TMPLIST = [] # a list of all 'dirty' tmpfiles
@@ -297,11 +296,8 @@ class TmpOutput(str):
                 copy = 'cp {} {}'
 
         # check that output file does not exist
-        if exists(filename):
-            if overwrite:
-                remove(filename, verbose=verbose)
-            else:
-                raise IOError('File "{}" exists'.format(filename))
+        if not overwrite and exists(filename):
+            raise IOError('File "{}" exists'.format(filename))
 
         # create output directory if necessary
         if (not exists(dirname(filename))) and (dirname(filename) != ''):
@@ -333,11 +329,10 @@ class TmpOutput(str):
             warnings.warn('Warning, {} has already been cleaned'.format(self))
             return
 
-        if not exists(self.__tmpfile):
-            raise IOError('file {} does not exist'.format(self.__tmpfile))
+        # remove temporary file (may not exist)
+        if exists(self.__tmpfile):
+            remove(self.__tmpfile, verbose=self.__verbose)
 
-        # remove temporary file
-        remove(self.__tmpfile, verbose=self.__verbose)
         rmdir(self.__tmpdir)
         self.__clean = True
         TMPLIST.remove(self)
