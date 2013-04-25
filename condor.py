@@ -74,6 +74,7 @@ log = {dirlog}/log
 output = {dirlog}/$(Process).out
 error = {dirlog}/$(Process).error
 environment = "PYTHONPATH={pythonpath}"
+requirements = (Memory >= {memory}) && (OpSys == "LINUX") && (LoadAvg < {loadavg})
 '''
 
 condor_job = '''
@@ -134,9 +135,11 @@ def pyro_server(jobs, uri_q):
 
 class CondorPool(object):
 
-    def __init__(self, log='condor-log'):
+    def __init__(self, log='condor-log', loadavg = 0.8, memory = 2000):
 
         self.__log = log
+        self.__loadavg = loadavg
+        self.__memory = memory
 
     def map(self, function, *iterables):
 
@@ -244,7 +247,9 @@ class CondorPool(object):
         fp.write(condor_header.format(
             python_exec = sys.executable,
             pythonpath = sjoin(sys.path,':'),
-            dirlog = self.__log))
+            dirlog = self.__log,
+            memory = self.__memory,
+            loadavg = self.__loadavg))
         for i in xrange(njobs):
             fp.write(condor_job.format(
                 worker=__name__,
