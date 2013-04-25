@@ -7,12 +7,11 @@
 A python wrapper of HTCondor allowing to apply pure python functions
 
 * The method map(...) is similar to the standard map function but spawns the
-* function execution across condor
+  function execution across condor
 
 * the method imap_unordered is similar to the function itertools.imap
   it works like map(...) but returns an iterator immediately
   the returned data may be unordered
-  this is useful in case of a large processing using a reduce function
 
 
 Example:
@@ -30,7 +29,13 @@ If the function has several arguments:
     results = p.map(g, range(5), range(5,10))
 
 
-How it works:
+WARNING:
+    The mapped function *must* be safely importable: if your main mapping code
+    and the target function are contained in the same file, you should make
+    sure to enclose your main code (in which the CondorPool class is used) in a
+    "if __name__ == '__main__':" section.
+
+HOW IT WORKS:
     A pyro4 server is started to share the inputs/outputs across the machines
     The N inputs are stored in the server, alons with the functions name and
     the file containing it.
@@ -280,6 +285,14 @@ def worker(argv):
     jobs = Pyro4.Proxy(pyro_uri)
     count, filename, function, args = jobs.getJob()
 
+    #
+    # for safety,"cd" to the directory containing the target function
+    #
+    os.chdir(os.path.dirname(filename))
+
+    #
+    # load the target function
+    #
     modname = basename(filename)
     if modname.endswith('.py'):
         modname = modname[:-3]
