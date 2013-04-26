@@ -153,19 +153,25 @@ class CondorPool(object):
         #
         # wait for the jobs to finish
         #
-        if progressbar_available:
-            pbar = ProgressBar(maxval = njobs)
-            pbar.start()
-        while jobs.jobsLeft() != 0:
+        try:
             if progressbar_available:
-                pbar.update(njobs - jobs.jobsLeft())
-            else:
-                print '{}/{} results have been received'.format(
-                        njobs - jobs.jobsLeft(),
-                        njobs)
-            sleep(1)
-        if progressbar_available:
-            pbar.finish()
+                pbar = ProgressBar(maxval = njobs)
+                pbar.start()
+            while jobs.jobsLeft() != 0:
+                if progressbar_available:
+                    pbar.update(njobs - jobs.jobsLeft())
+                else:
+                    print '{}/{} results have been received'.format(
+                            njobs - jobs.jobsLeft(),
+                            njobs)
+                sleep(1)
+            if progressbar_available:
+                pbar.finish()
+        except KeyboardInterrupt:
+            server.terminate()
+            print 'interrupted!\n'
+            raise
+
 
 
         #
