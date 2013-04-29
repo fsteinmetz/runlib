@@ -62,6 +62,8 @@ from sys import argv
 import inspect
 from string import join as sjoin
 import Pyro4
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='Pyro4') # ignore warning "HMAC_KEY not set, protocol data may not be secure"
 Pyro4.config.SERVERTYPE = "multiplex"
 
 try:
@@ -119,6 +121,14 @@ class Jobs(object):
     def totalLeft(self):
         return self.jobsLeft() + self.resultsLeft()
 
+    def flush(self):
+        while not self.inputs.empty():
+            self.inputs.get()
+        while not self.outputs.empty():
+            self.outputs.get()
+        while not self.jobsleft.empty():
+            self.jobsleft.get()
+
 
 
 
@@ -145,10 +155,11 @@ class CondorPool(object):
         self.__log = log
         self.__loadavg = loadavg
         self.__memory = memory
+        self.__server = None
 
     def map(self, function, *iterables):
 
-        server, jobs, njobs = self._condor_map_async(function, *iterables)
+        jobs, njobs = self._condor_map_async(function, *iterables)
 
         #
         # wait for the jobs to finish
@@ -168,8 +179,9 @@ class CondorPool(object):
             if progressbar_available:
                 pbar.finish()
         except KeyboardInterrupt:
-            server.terminate()
-            print 'interrupted!\n'
+            jobs.flush()
+            self.__server.terminate()
+            print 'interrupted!'
             raise
 
 
@@ -189,7 +201,7 @@ class CondorPool(object):
         #
         # terminate the pyro daemon
         #
-        server.terminate()
+        self.__server.terminate()
 
         # return only the results
         return map(lambda x: x[1], results)
@@ -197,7 +209,7 @@ class CondorPool(object):
 
     def imap_unordered(self, function, *iterables):
 
-        server, jobs, njobs = self._condor_map_async(function, *iterables)
+        jobs, njobs = self._condor_map_async(function, *iterables)
 
         while (jobs.totalLeft() != 0):
             result = jobs.getResult()
@@ -206,7 +218,7 @@ class CondorPool(object):
         #
         # terminate the pyro daemon
         #
-        server.terminate()
+        self.__server.terminate()
 
     def _condor_map_async(self, function, *iterables):
 
@@ -219,10 +231,11 @@ class CondorPool(object):
         # start the pyro daemon in a thread
         #
         uri_q = Queue()
-        server = Process(target=pyro_server, args=(jobs, uri_q))
-        server.start()
+        self.__server = Process(target=pyro_server, args=(jobs, uri_q))
+        self.__server.start()
         sleep(1)
         uri = uri_q.get()
+        uri_q.close()
 
         #
         # initializations
@@ -277,7 +290,7 @@ class CondorPool(object):
         sleep(3)
         condor_script.clean()
 
-        return server, jobs, njobs
+        return jobs, njobs
 
 
 
