@@ -67,7 +67,7 @@ warnings.filterwarnings('ignore', category=UserWarning, module='Pyro4') # ignore
 Pyro4.config.SERVERTYPE = "multiplex"
 
 try:
-    from progressbar import ProgressBar
+    from progressbar import ProgressBar, Percentage, Bar, ETA
     progressbar_available = True
 except:
     progressbar_available = False
@@ -166,7 +166,8 @@ class CondorPool(object):
         #
         try:
             if progressbar_available:
-                pbar = ProgressBar(maxval = njobs)
+                pbar = ProgressBar(widgets=[Percentage(),' ',Bar(),' ',ETA()],
+                        maxval=njobs)
                 pbar.start()
             while jobs.jobsLeft() != 0:
                 if progressbar_available:
