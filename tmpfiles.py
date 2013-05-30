@@ -203,6 +203,7 @@ class TmpInput(str):
         # does the copy
         cmd = copy.format(filename, tmpfile)
         if system(cmd):
+            remove(tmpfile, verbose=verbose)
             raise IOError('Error executing "{}"'.format(cmd))
 
         # create the object and sets its attributes
