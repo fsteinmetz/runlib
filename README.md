@@ -1,80 +1,50 @@
 runlib
 ======
 
-A simple python module for parallel/cluster code execution.
-
-How it works: you write a single script using runlib. The first time it is run,
-a server is created, containing the jobs list. When you run it again (possibly
-serveral times, and on different computers connected in the same local
-network), clients are connected to the server and process the jobs as required.
-
-Example
--------
-
-    from runlib.runlib import Processor
-
-    p = Processor(server=True)                # (a)
-    for i in range(10):
-        p.submit('process %s' % (files[i]))   # (b)
-    p.wait()                                  # (c)
-
-### Server mode
-
-When running this script for the first time:
-
-(a) The server is created. A file is written in current directory, and contains
-its ip address and port. By default, this file is "server.status".
-
-(b) The server's jobs queue is populated.
-
-(c) The server starts waiting for connections.
-    At this point, you will run this same script on the same computer, or on
-another computer in the local network. See section 1.2.
-    You will be able to monitor the remaining jobs by pressing enter, or stop
-    the server by pressing 'q'.
+Several tools for running python code.
 
 
-### Client mode
+1. condor.py
+------------
 
-When running the same script as a server already exists, the following happens:
+A python wrapper of [HTCondor](http://research.cs.wisc.edu/htcondor/) allowing to apply pure python functions.
 
-(a) The file "server.status" is detected. The ip/port of the server is read
-from this file. A connection is then made with the server. The client receives
-the jobs from the server and executed them until the jobs queue is empty. When
-done, the script exits (so steps (b) and (c) are not done).
-
-NOTE: You can run this script in client mode many times
-
-
-### Local mode
-
-If you do not want to use server mode, use `Processor(server=False)`, or simply
-`Processor()`.
-
-
-### Processing python functions
-
-To process a python function, pass the argument `function=f` to `Processor()`
-
-    from runlib.runlib import Processor
+_Example:_
 
     def f(x):
         return x**2
 
-    p = Processor(server=True; function=f)    # (a)
-    for i in range(10):
-        p.submit(i)                           # (b)
-    p.wait()                                  # (c)
-    print p.results    # contains the function's results
+    p = CondorPool()
+    results = p.map(f, range(5))
 
-The results of the function execution are stored in `p.results`.
-    
 
-How to use this module
-----------------------
+2. tmpfiles.py
+--------------
 
-The python module [Pyro4] (http://packages.python.org/Pyro4/) is required.
+Management of temporary files: inputs to a processing (TmpInput), outputs of a processing (TmpOutput), and pure temporary files (Tmp).
+Includes several useful features, such as freedisk space verification, 
 
-However, if this module is not found, you will be guided to install it locally.
+_Example:_
+
+        f = TmpInput('/path/to/source.data')
+        # the source file is copied to a unique temporary directory
+        # and f contains the file name of the temporary file
+        # <use f as an input to a processor>
+        f.clean() # or Tmp.cleanAll()
+
+        f = TmpOutput('/path/to/target.data')
+        # at this point, f is the temporary file (non-existing yet)
+        # and f.target() is the target file
+        #
+        # <create file f>
+        #
+        if <f created successfully>:
+            f.move() # move f to target
+        else:
+            f.clean()
+
+**locally**
+
+A tool for using tmpfiles in standard executables.
 
 
