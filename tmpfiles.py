@@ -43,7 +43,7 @@ def df(path):
     get free disk space in MB
     '''
     res = statvfs(path)
-    available = int(res.f_frsize*res.f_bfree/(1024.**2))
+    available = int(res.f_frsize*res.f_bavail/(1024.**2))
     return available
 
 
