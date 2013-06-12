@@ -52,6 +52,7 @@ import os
 import imp
 import sys
 import socket
+import getpass
 from multiprocessing import Queue
 from time import sleep
 from os.path import dirname, basename
@@ -77,9 +78,9 @@ condor_header = '''
 universe = vanilla
 notification = Error
 executable = {python_exec}
-log = {dirlog}/log
-output = {dirlog}/$(Process).out
-error = {dirlog}/$(Process).error
+log = {dirlog}/$(Cluster).log
+output = {dirlog}/$(Cluster).$(Process).out
+error = {dirlog}/$(Cluster).$(Process).error
 environment = "PYTHONPATH={pythonpath}"
 requirements = (Memory >= {memory}) && (OpSys == "LINUX") && (LoadAvg < {loadavg})
 '''
@@ -150,7 +151,7 @@ def pyro_server(jobs, uri_q):
 
 class CondorPool(object):
 
-    def __init__(self, log='condor-log', loadavg = 0.8, memory = 2000):
+    def __init__(self, log='/tmp/condor-log-{}'.format(getpass.getuser()), loadavg = 0.8, memory = 2000):
 
         self.__log = log
         self.__loadavg = loadavg
