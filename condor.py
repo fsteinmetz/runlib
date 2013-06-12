@@ -62,6 +62,7 @@ from tmpfiles import Tmp
 from sys import argv
 import inspect
 from string import join as sjoin
+from bisect import bisect
 import Pyro4
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='Pyro4') # ignore warning "HMAC_KEY not set, protocol data may not be secure"
@@ -86,7 +87,7 @@ requirements = (Memory >= {memory}) && (OpSys == "LINUX") && (LoadAvg < {loadavg
 '''
 
 condor_job = '''
-arguments = -m {worker} {pyro_uri}
+arguments = -m {worker} {pyro_uri} {job_id}
 queue
 '''
 
@@ -94,43 +95,51 @@ queue
 class Jobs(object):
 
     def __init__(self):
-        self.inputs = Queue()
-        self.outputs = Queue()
-        self.jobsleft = Queue()
+        self.inputs = []
+        self.outputs = Queue() # (id, value) pairs
+        self.ndone = 0    # number of finished jobs
+        self.nq = 0  # number of queued results
 
     def putJob(self, job):
-        self.jobsleft.put(0)
-        self.inputs.put(job)
+        self.inputs.append(job)
 
+    def getJob(self, job_id):
+        return self.inputs[job_id]
 
-    def getJob(self):
-        return self.inputs.get()
-
-    def putResult(self, value):
-        self.jobsleft.get()
-        self.outputs.put(value)
+    def putResult(self, job_id, value):
+        self.outputs.put((job_id, value))
+        self.ndone += 1
+        self.nq += 1
 
     def getResult(self):
-        return self.outputs.get()
+        (k, v) = self.outputs.get()
+        self.nq -= 1
+        return v # return one value
 
-    def resultsLeft(self):
-        return self.outputs.qsize()
+    def getResults_sorted(self):
 
-    def jobsLeft(self):
-        return self.jobsleft.qsize()
+        results = []
+        keys = []
+        for _ in xrange(self.nq):
+            (k, v) = self.outputs.get()
+            index = bisect(keys, k)
+            keys.insert(index, k)
+            results.insert(index, v)
+        self.nq = 0
 
-    def totalLeft(self):
-        return self.jobsLeft() + self.resultsLeft()
+        return results
 
-    def flush(self):
-        while not self.inputs.empty():
-            self.inputs.get()
-        while not self.outputs.empty():
-            self.outputs.get()
-        while not self.jobsleft.empty():
-            self.jobsleft.get()
+    def left(self): # number of remaining jobs
+        return len(self.inputs) - self.ndone
 
-
+    def done(self): # number of finished jobs
+        return self.ndone
+    
+    def total(self): # total number of jobs
+        return len(self.inputs)
+    
+    def nqueued(self):
+        return self.nq
 
 
 def pyro_server(jobs, uri_q):
@@ -160,28 +169,27 @@ class CondorPool(object):
 
     def map(self, function, *iterables):
 
-        jobs, njobs = self._condor_map_async(function, *iterables)
+        jobs = self._condor_map_async(function, *iterables)
 
         #
         # wait for the jobs to finish
         #
         try:
             if progressbar_available:
-                pbar = ProgressBar(widgets=[Percentage(),Counter(',%d/'+str(njobs)),Bar(),' ',ETA()],
-                        maxval=njobs)
+                pbar = ProgressBar(widgets=[Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
+                        maxval=jobs.total())
                 pbar.start()
-            while jobs.jobsLeft() != 0:
+            while jobs.left() != 0:
                 if progressbar_available:
-                    pbar.update(njobs - jobs.jobsLeft())
+                    pbar.update(jobs.done())
                 else:
                     print '{}/{} results have been received'.format(
-                            njobs - jobs.jobsLeft(),
-                            njobs)
-                sleep(1)
+                            jobs.done(),
+                            jobs.total())
+                sleep(2)
             if progressbar_available:
                 pbar.finish()
         except KeyboardInterrupt:
-            jobs.flush()
             self.__server.terminate()
             print 'interrupted!'
             raise
@@ -191,14 +199,7 @@ class CondorPool(object):
         #
         # store the results
         #
-        results = []
-        while jobs.resultsLeft() != 0:
-            # get (count, result)
-            results.append(jobs.getResult())
-
-        # sort by count
-        results.sort(key=lambda x: x[0])
-
+        results = jobs.getResults_sorted()
 
         #
         # terminate the pyro daemon
@@ -206,16 +207,18 @@ class CondorPool(object):
         self.__server.terminate()
 
         # return only the results
-        return map(lambda x: x[1], results)
+        return results
 
 
     def imap_unordered(self, function, *iterables):
 
-        jobs, njobs = self._condor_map_async(function, *iterables)
+        jobs = self._condor_map_async(function, *iterables)
 
-        while (jobs.totalLeft() != 0):
-            result = jobs.getResult()
-            yield result[1]
+        while (jobs.left() != 0):
+            if jobs.nqueued() > 0:
+                yield jobs.getResult()
+            else:
+                sleep(2)
 
         #
         # terminate the pyro daemon
@@ -224,20 +227,20 @@ class CondorPool(object):
 
     def _condor_map_async(self, function, *iterables):
 
-        #
-        # init jobs object
-        #
-        jobs = Jobs()
+        if function.func_name == '<lambda>':
+            raise Exception('Can not run lambda functions using condor.py')
+
 
         #
         # start the pyro daemon in a thread
         #
         uri_q = Queue()
-        self.__server = Process(target=pyro_server, args=(jobs, uri_q))
+        self.__server = Process(target=pyro_server, args=(Jobs(), uri_q))
         self.__server.start()
         sleep(1)
         uri = uri_q.get()
         uri_q.close()
+        jobs = Pyro4.Proxy(uri)
 
         #
         # initializations
@@ -248,14 +251,10 @@ class CondorPool(object):
             filename = filename[:-1]
             print 'DEBUG PYC'
         function_str = function.__name__
-        print 'Condor map function "{}"'.format(function_str), 'in', filename, 'with executable', sys.executable
+        print 'Condor map function "{}" in "{}" with executable "{}"'.format(function_str, filename, sys.executable)
 
-        count = 0
         for args in zip(*iterables):
-            jobs.putJob([count, filename, function_str, args])
-            count += 1
-
-        njobs = len(iterables[0])
+            jobs.putJob([filename, function_str, args])
 
 
         #
@@ -276,10 +275,11 @@ class CondorPool(object):
             dirlog = self.__log,
             memory = self.__memory,
             loadavg = self.__loadavg))
-        for i in xrange(njobs):
+        for i in xrange(jobs.total()):
             fp.write(condor_job.format(
                 worker=__name__,
                 pyro_uri=uri,
+                job_id=i,
                 ))
         fp.close()
 
@@ -292,19 +292,20 @@ class CondorPool(object):
         sleep(3)
         condor_script.clean()
 
-        return jobs, njobs
+        return jobs
 
 
 
 def worker(argv):
 
     pyro_uri = argv[1]
+    job_id = int(argv[2])
 
     #
     # connect to the daemon
     #
     jobs = Pyro4.Proxy(pyro_uri)
-    count, filename, function, args = jobs.getJob()
+    filename, function, args = jobs.getJob(job_id)
 
     #
     # for safety,"cd" to the directory containing the target function
@@ -326,10 +327,10 @@ def worker(argv):
     try:
         result = f(*args)
     except:
-        jobs.putResult((count, None))
+        jobs.putResult(job_id, None)
         raise
 
-    jobs.putResult((count, result))
+    jobs.putResult(job_id, result)
 
 
 if __name__ == '__main__':
