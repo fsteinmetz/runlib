@@ -83,7 +83,8 @@ log = {dirlog}/$(Cluster).log
 output = {dirlog}/$(Cluster).$(Process).out
 error = {dirlog}/$(Cluster).$(Process).error
 environment = "PYTHONPATH={pythonpath}"
-requirements = (Memory >= {memory}) && (OpSys == "LINUX") && (LoadAvg < {loadavg})
+requirements = (OpSys == "LINUX") && (LoadAvg < {loadavg})
+request_memory = {memory}
 '''
 
 condor_job = '''
