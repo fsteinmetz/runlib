@@ -169,6 +169,9 @@ class CondorPool(object):
 
     def map(self, function, *iterables):
 
+        if len(iterables) == 0:
+            return []
+
         jobs = self._condor_map_async(function, *iterables)
 
         #
@@ -212,6 +215,10 @@ class CondorPool(object):
 
     def imap_unordered(self, function, *iterables):
 
+        if len(iterables) == 0:
+            return
+            yield
+
         jobs = self._condor_map_async(function, *iterables)
 
         while (jobs.left() != 0):
@@ -252,6 +259,7 @@ class CondorPool(object):
             print 'DEBUG PYC'
         function_str = function.__name__
         print 'Condor map function "{}" in "{}" with executable "{}"'.format(function_str, filename, sys.executable)
+        print 'Log directory is "{}"'.format(self.__log)
 
         for args in zip(*iterables):
             jobs.putJob([filename, function_str, args])
@@ -300,6 +308,11 @@ def worker(argv):
 
     pyro_uri = argv[1]
     job_id = int(argv[2])
+
+    # write a small header at the start of stdout and stderr logs
+    msg = '### {} log on {} ###\n'
+    sys.stdout.write(msg.format('Output', socket.gethostname()))
+    sys.stderr.write(msg.format('Error', socket.gethostname()))
 
     #
     # connect to the daemon
