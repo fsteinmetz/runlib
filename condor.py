@@ -313,7 +313,9 @@ def worker(argv):
     # write a small header at the start of stdout and stderr logs
     msg = '### {} log on {} ###\n'
     sys.stdout.write(msg.format('Output', socket.gethostname()))
+    sys.stdout.flush()
     sys.stderr.write(msg.format('Error', socket.gethostname()))
+    sys.stderr.flush()
 
     #
     # connect to the daemon
