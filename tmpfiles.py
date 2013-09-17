@@ -342,7 +342,7 @@ class TmpOutput(str):
         return self.__filename
 
     def move(self):
-        print 'move', self
+        print 'move', self, 'to', self.target()
 
         if not exists(self.__tmpfile):
             raise IOError('file {} does not exist'.format(self.__tmpfile))
