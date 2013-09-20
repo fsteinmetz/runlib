@@ -170,7 +170,7 @@ class CondorPool(object):
 
     def map(self, function, *iterables):
 
-        if len(iterables) == 0:
+        if len(iterables[0]) == 0:
             return []
 
         jobs = self._condor_map_async(function, *iterables)
@@ -216,7 +216,7 @@ class CondorPool(object):
 
     def imap_unordered(self, function, *iterables):
 
-        if len(iterables) == 0:
+        if len(iterables[0]) == 0:
             return
             yield
 
