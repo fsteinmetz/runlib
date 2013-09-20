@@ -32,6 +32,7 @@ from os.path import exists, basename, join, dirname
 from os import system, rmdir, statvfs
 import tempfile
 import warnings
+from shutil import rmtree
 
 
 TMPLIST = [] # a list of all 'dirty' tmpfiles
@@ -364,6 +365,64 @@ class TmpOutput(str):
         while len(TMPLIST) != 0:
             TMPLIST[0].clean()
 
+class TmpDir(str):
+    '''
+    Create a temporary directory
+
+    Example:
+        d = TmpDir()   # create a temporary directory such as /tmp/tmpfiles_9aamr0/
+        # <use this directory as string d>
+        d.clean() # remove the temporary directory
+    '''
+
+    def __new__(cls,
+            tmpdir='/tmp/',
+            verbose=False,
+            freespace=1000):
+
+        assert exists(tmpdir)
+
+        # check free disk space
+        if (freespace > 0) and (df(tmpdir) < freespace):
+            raise IOError('Not enough free space in {} ({} MB remaining, {} MB required)'.format(
+                tmpdir, df(tmpdir), freespace))
+
+        # create the temporary directory
+        tmpd = tempfile.mkdtemp(dir=tmpdir, prefix='tmpdir_')
+        ret = system('mkdir -p {}'.format(tmpd))
+        if ret:
+            raise 'Error creating directory {}'.format(tmpd)
+
+        # create the object and sets its attributes
+        self = str.__new__(cls, tmpd)
+        self.__verbose = verbose
+        self.__clean = False
+
+        TMPLIST.append(self)
+
+        if self.__verbose:
+            print 'Creating temporary directory "{}"'.format(self)
+
+        return self
+    
+    def clean(self):
+
+        if self.__verbose:
+            print 'Clean temporary directory "{}"'.format(self)
+        rmtree(self)
+        self.__clean = True
+        TMPLIST.remove(self)
+
+    def __del__(self):
+        # raise an exception if the object is deleted before clean is called
+        if not self.__clean:
+            print('Warning: clean has not been called for file "{}"'.format(self))
+
+    @staticmethod
+    def cleanAll():
+        while len(TMPLIST) != 0:
+            TMPLIST[0].clean()
+
 
 #
 # tests
@@ -394,9 +453,16 @@ def test_output():
     tmp.move()
     Tmp.cleanAll()
 
+def test_dir():
+    
+    d = TmpDir(verbose=True)
+    filename = join(d, 'test')
+    open(filename, 'w').write('test')
+    d.clean()
 
 
 if __name__ == '__main__':
     test_tmp()
     test_input()
     test_output()
+    test_dir()
