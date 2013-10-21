@@ -119,6 +119,13 @@ class Tmp(str):
         if not self.__clean:
             print('Warning: clean has not been called for file "{}"'.format(self))
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        if not self.__clean:
+            self.clean()
+
     @staticmethod
     def cleanAll():
         while len(TMPLIST) != 0:
@@ -242,6 +249,13 @@ class TmpInput(str):
         if not self.__clean:
             print('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self))
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        if not self.__clean:
+            self.clean()
+
     @staticmethod
     def cleanAll():
         while len(TMPLIST) != 0:
@@ -360,6 +374,13 @@ class TmpOutput(str):
         if not self.__clean:
             print('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self))
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        if not self.__clean:
+            self.clean()
+
     @staticmethod
     def cleanAll():
         while len(TMPLIST) != 0:
@@ -417,6 +438,13 @@ class TmpDir(str):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
             print('Warning: clean has not been called for file "{}"'.format(self))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        if not self.__clean:
+            self.clean()
 
     @staticmethod
     def cleanAll():
