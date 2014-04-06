@@ -184,6 +184,13 @@ class TmpInput(str):
                     copy = 'gunzip -c {} > {}'
                 rename = lambda x: x[:-3]
 
+            if filename.endswith('.Z'):
+                if verbose:
+                    copy = 'gunzip -vc {} > {}'
+                else:
+                    copy = 'gunzip -c {} > {}'
+                rename = lambda x: x[:-2]
+
             elif filename.endswith('.bz2'):
                 if verbose:
                     copy = 'bunzip2 -vc {} > {}'
