@@ -222,7 +222,7 @@ class CondorPool(object):
 
         jobs = self._condor_map_async(function, *iterables)
 
-        while (jobs.left() != 0):
+        while (jobs.left() != 0) or (jobs.nqueued() != 0):
             if jobs.nqueued() > 0:
                 yield jobs.getResult()
             else:
