@@ -88,7 +88,7 @@ executable = /usr/bin/env
 log = {dirlog}/$(Cluster).log
 output = {dirlog}/$(Cluster).$(Process).out
 error = {dirlog}/$(Cluster).$(Process).error
-environment = "PYTHONPATH={pythonpath}"
+environment = "LD_LIBRARY_PATH={ld_library_path} PYTHONPATH={pythonpath} PATH={path}"
 requirements = (OpSys == "LINUX") && (LoadAvg < {loadavg})
 request_memory = {memory}
 '''
@@ -327,6 +327,8 @@ class CondorPool(object):
         fp = open(condor_script, 'w')
         fp.write(condor_header.format(
             pythonpath = sjoin(sys.path,':'),
+            path = os.environ["PATH"],
+            ld_library_path = os.environ["LD_LIBRARY_PATH"],
             dirlog = self.__log,
             memory = self.__memory,
             loadavg = self.__loadavg))
