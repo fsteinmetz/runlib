@@ -78,7 +78,7 @@ except:
 condor_header = '''
 universe = vanilla
 notification = Error
-executable = {python_exec}
+executable = /usr/bin/env
 log = {dirlog}/$(Cluster).log
 output = {dirlog}/$(Cluster).$(Process).out
 error = {dirlog}/$(Cluster).$(Process).error
@@ -88,7 +88,7 @@ request_memory = {memory}
 '''
 
 condor_job = '''
-arguments = -m {worker} {pyro_uri} {job_id}
+arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} {job_id}'"
 queue
 '''
 
@@ -279,7 +279,6 @@ class CondorPool(object):
         condor_script = Tmp('condor.run')
         fp = open(condor_script, 'w')
         fp.write(condor_header.format(
-            python_exec = sys.executable,
             pythonpath = sjoin(sys.path,':'),
             dirlog = self.__log,
             memory = self.__memory,
@@ -287,6 +286,7 @@ class CondorPool(object):
         for i in xrange(jobs.total()):
             fp.write(condor_job.format(
                 worker=__name__,
+                python_exec = sys.executable,
                 pyro_uri=uri,
                 job_id=i,
                 ))
