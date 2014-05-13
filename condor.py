@@ -93,6 +93,35 @@ queue
 '''
 
 
+
+#
+# define a basic ProgressBar (text progressbar)
+# http://code.google.com/p/python-progressbar/
+# if the module is not available
+#
+if not progressbar_available:
+    from datetime import datetime
+    class ProgressBar(object):
+        def __init__(self, *args, **kwargs):
+            self.__total = kwargs['maxval']
+            self.__previous = None
+        def start(self): pass
+        def update(self, N):
+            if N != self.__previous:
+                print '[{}] {}/{} results have been received'.format(
+                        datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        N, self.__total)
+                self.__previous = N
+            pass
+        def finish(self):
+            self.update(self.__total)
+    def Percentage(): pass
+    def Bar(): pass
+    def ETA(): pass
+    def Counter(x): pass
+
+
+
 class Jobs(object):
 
     def __init__(self):
@@ -135,10 +164,10 @@ class Jobs(object):
 
     def done(self): # number of finished jobs
         return self.ndone
-    
+
     def total(self): # total number of jobs
         return len(self.inputs)
-    
+
     def nqueued(self):
         return self.nq
 
@@ -161,12 +190,16 @@ def pyro_server(jobs, uri_q):
 
 class CondorPool(object):
 
-    def __init__(self, log='/tmp/condor-log-{}'.format(getpass.getuser()), loadavg = 0.8, memory = 2000):
+    def __init__(self, log='/tmp/condor-log-{}'.format(getpass.getuser()),
+            loadavg = 0.8,
+            memory = 2000,
+            progressbar = True):
 
         self.__log = log
         self.__loadavg = loadavg
         self.__memory = memory
         self.__server = None
+        self.__progressbar = progressbar
 
     def map(self, function, *iterables):
 
@@ -179,19 +212,15 @@ class CondorPool(object):
         # wait for the jobs to finish
         #
         try:
-            if progressbar_available:
+            if self.__progressbar:
                 pbar = ProgressBar(widgets=[Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
                         maxval=jobs.total())
                 pbar.start()
             while jobs.left() != 0:
-                if progressbar_available:
+                if self.__progressbar:
                     pbar.update(jobs.done())
-                else:
-                    print '{}/{} results have been received'.format(
-                            jobs.done(),
-                            jobs.total())
                 sleep(2)
-            if progressbar_available:
+            if self.__progressbar:
                 pbar.finish()
         except KeyboardInterrupt:
             self.__server.terminate()
@@ -222,11 +251,23 @@ class CondorPool(object):
 
         jobs = self._condor_map_async(function, *iterables)
 
+        if self.__progressbar:
+            pbar = ProgressBar(widgets=[Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
+                    maxval=jobs.total())
+            pbar.start()
+
         while (jobs.left() != 0) or (jobs.nqueued() != 0):
+
+            if self.__progressbar:
+                pbar.update(jobs.done())
+
             if jobs.nqueued() > 0:
                 yield jobs.getResult()
             else:
                 sleep(2)
+
+        if self.__progressbar:
+            pbar.finish()
 
         #
         # terminate the pyro daemon
