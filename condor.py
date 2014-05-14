@@ -327,8 +327,8 @@ class CondorPool(object):
         fp = open(condor_script, 'w')
         fp.write(condor_header.format(
             pythonpath = sjoin(sys.path,':'),
-            path = os.environ["PATH"],
-            ld_library_path = os.environ["LD_LIBRARY_PATH"],
+            path = os.environ.get("PATH", failobj=""),
+            ld_library_path = os.environ.get("LD_LIBRARY_PATH", failobj=""),
             dirlog = self.__log,
             memory = self.__memory,
             loadavg = self.__loadavg))
