@@ -66,7 +66,13 @@ from bisect import bisect
 import Pyro4
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='Pyro4') # ignore warning "HMAC_KEY not set, protocol data may not be secure"
+
 Pyro4.config.SERVERTYPE = "multiplex"
+
+# the pickle serializer is less safe, but works for all objects
+# the default and safe serializer for Pyro4 is 'serpent'
+Pyro4.config.SERIALIZER = "pickle"
+Pyro4.config.SERIALIZERS_ACCEPTED.add('pickle')
 
 try:
     from progressbar import ProgressBar, Percentage, Bar, ETA, Counter
