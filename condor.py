@@ -75,8 +75,11 @@ Pyro4.config.SERVERTYPE = "multiplex"
 Pyro4.config.SERIALIZER = "pickle"
 Pyro4.config.SERIALIZERS_ACCEPTED.add('pickle')
 
+#
+# Progress bar
+#
 try:
-    from progressbar import ProgressBar, Percentage, Bar, ETA, Counter
+    from progressbar import ProgressBar, Percentage, Bar, ETA, Counter, Widget
 except:
     #
     # define a basic ProgressBar (text progressbar)
@@ -102,7 +105,17 @@ except:
     def Bar(): pass
     def ETA(): pass
     def Counter(x): pass
+    class Widget(): pass
 
+class Custom(Widget):
+    '''
+    A custom ProgressBar widget to display arbitrary text
+    '''
+    def update(self, bar):
+        try: return self.__text
+        except: return ''
+    def set(self, text):
+        self.__text = text
 
 
 
@@ -128,28 +141,51 @@ queue
 
 
 class Jobs(object):
+    '''
+    A class to manage the jobs inputs/outputs
+    '''
+
+    # status of jobs
+    status_waiting = 0     # waiting  - job has not started
+    status_running = 1     # running  - job is running
+    status_stored  = 2     # stored   - job has been stored in results queue
+    status_fetched  = 3    # fetched  - job has been dequeued
 
     def __init__(self):
         self.inputs = []
         self.outputs = Queue() # (id, value) pairs
-        self.ndone = 0    # number of finished jobs
-        self.nq = 0  # number of queued results
         self.__totaltime = timedelta(0)
+        self.__status = []
 
     def putJob(self, job):
+
+        # the job starts with 'waiting'
+        self.__status.append(self.status_waiting)
+
         self.inputs.append(job)
 
     def getJob(self, job_id):
+
+        # the job becomes 'running'
+        self.__status[job_id] = self.status_running
+
         return self.inputs[job_id]
 
     def putResult(self, TUPLE):
+
+        # the job becomes 'stored'
+        job_id = TUPLE[0]
+        self.__status[job_id] = self.status_stored
+
         self.outputs.put(TUPLE)
-        self.ndone += 1
-        self.nq += 1
 
     def getResult(self):
-        (k, v, t) = self.outputs.get()
-        self.nq -= 1
+
+        (job_id, v, t) = self.outputs.get()
+
+        # the job becomes 'fetched'
+        self.__status[job_id] = self.status_fetched
+
         self.__totaltime += t
         return v # return one value
 
@@ -157,27 +193,48 @@ class Jobs(object):
 
         results = []
         keys = []
-        for _ in xrange(self.nq):
-            (k, v, t) = self.outputs.get()
-            index = bisect(keys, k)
-            keys.insert(index, k)
+        for _ in xrange(self.nstored()):
+            (job_id, v, t) = self.outputs.get()
+            self.__status[job_id] = self.status_fetched
+            index = bisect(keys, job_id)
+            keys.insert(index, job_id)
             results.insert(index, v)
             self.__totaltime += t
-        self.nq = 0
 
         return results
 
-    def left(self): # number of remaining jobs
-        return len(self.inputs) - self.ndone
+    def nstored(self):
+        return self.__status.count(self.status_stored)
 
-    def done(self): # number of finished jobs
-        return self.ndone
+    def nfetched(self):
+        return self.__status.count(self.status_fetched)
 
-    def total(self): # total number of jobs
+    def nrunning(self):
+        return self.__status.count(self.status_running)
+
+    def ndone(self):
+        ''' number of finished jobs (stored or fetched) '''
+        return self.nstored() + self.nfetched()
+
+    def finished(self, mode):
+        '''
+        returns whether all the jobs are finished
+        'map' mode:  all jobs must be 'stored'
+                     (they will be fetched afterwards)
+        'imap' mode: all jobs must be 'fetched'
+        '''
+        if mode == 'map':
+            return self.nstored() == self.total()
+
+        elif mode == 'imap':
+            # imap: all jobs must be 'fetched'
+            return self.nfetched() == self.total()
+        else:
+            raise Exception('jobs.finished: mode should be either "map" or "imap"')
+
+    def total(self):
+        ''' total number of jobs '''
         return len(self.inputs)
-
-    def nqueued(self):
-        return self.nq
 
     def totaltime(self):
         return self.__totaltime
@@ -226,14 +283,17 @@ class CondorPool(object):
         t0 = datetime.now()
         try:
             if self.__progressbar:
-                pbar = ProgressBar(widgets=[Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
+                custom = Custom()
+                pbar = ProgressBar(widgets=[custom,Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
                         maxval=jobs.total())
                 pbar.start()
-            while jobs.left() != 0:
+            while not jobs.finished('map'):
                 if self.__progressbar:
-                    pbar.update(jobs.done())
+                    custom.set('[%d running] ' % (jobs.nrunning()))
+                    pbar.update(jobs.ndone())
                 sleep(2)
             if self.__progressbar:
+                custom.set('')
                 pbar.finish()
         except KeyboardInterrupt:
             self.__server.terminate()
@@ -272,23 +332,26 @@ class CondorPool(object):
         jobs = self._condor_map_async(function, *iterables)
 
         if self.__progressbar:
-            pbar = ProgressBar(widgets=[Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
+            custom = Custom()
+            pbar = ProgressBar(widgets=[custom,Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
                     maxval=jobs.total())
             pbar.start()
 
         t0 = datetime.now()
-        while (jobs.left() != 0) or (jobs.nqueued() != 0):
+        while not jobs.finished('imap'):
 
             if self.__progressbar:
-                pbar.update(jobs.done())
+                custom.set('[%d running] ' % (jobs.nrunning()))
+                pbar.update(jobs.ndone())
 
-            if jobs.nqueued() > 0:
+            if jobs.nstored() > 0:
                 yield jobs.getResult()
             else:
                 sleep(2)
 
         # display total time
         if self.__progressbar:
+            custom.set('')
             pbar.finish()
             totaltime = datetime.now() - t0
             print 'Total time:', totaltime
@@ -367,7 +430,12 @@ class CondorPool(object):
         # submit the jobs to condor
         #
         command = 'condor_submit {}'.format(condor_script)
-        system(command)
+        ret = system(command)
+        if ret != 0:
+            self.__server.terminate()
+            condor_script.clean()
+            raise Exception('Could not run %s' % (command))
+
         sleep(3)
         condor_script.clean()
 
