@@ -63,6 +63,7 @@ from sys import argv
 import inspect
 from string import join as sjoin
 from bisect import bisect
+from datetime import datetime, timedelta
 import Pyro4
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='Pyro4') # ignore warning "HMAC_KEY not set, protocol data may not be secure"
@@ -76,36 +77,12 @@ Pyro4.config.SERIALIZERS_ACCEPTED.add('pickle')
 
 try:
     from progressbar import ProgressBar, Percentage, Bar, ETA, Counter
-    progressbar_available = True
 except:
-    progressbar_available = False
-
-
-condor_header = '''
-universe = vanilla
-notification = Error
-executable = /usr/bin/env
-log = {dirlog}/$(Cluster).log
-output = {dirlog}/$(Cluster).$(Process).out
-error = {dirlog}/$(Cluster).$(Process).error
-environment = "LD_LIBRARY_PATH={ld_library_path} PYTHONPATH={pythonpath} PATH={path}"
-requirements = (OpSys == "LINUX") && (LoadAvg < {loadavg})
-request_memory = {memory}
-'''
-
-condor_job = '''
-arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} {job_id}'"
-queue
-'''
-
-
-
-#
-# define a basic ProgressBar (text progressbar)
-# http://code.google.com/p/python-progressbar/
-# if the module is not available
-#
-if not progressbar_available:
+    #
+    # define a basic ProgressBar (text progressbar)
+    # http://code.google.com/p/python-progressbar/
+    # if the module is not available
+    #
     from datetime import datetime
     class ProgressBar(object):
         def __init__(self, *args, **kwargs):
@@ -128,6 +105,28 @@ if not progressbar_available:
 
 
 
+
+
+condor_header = '''
+universe = vanilla
+notification = Error
+executable = /usr/bin/env
+log = {dirlog}/$(Cluster).log
+output = {dirlog}/$(Cluster).$(Process).out
+error = {dirlog}/$(Cluster).$(Process).error
+environment = "LD_LIBRARY_PATH={ld_library_path} PYTHONPATH={pythonpath} PATH={path}"
+requirements = (OpSys == "LINUX") && (LoadAvg < {loadavg})
+request_memory = {memory}
+'''
+
+condor_job = '''
+arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} {job_id}'"
+queue
+'''
+
+
+
+
 class Jobs(object):
 
     def __init__(self):
@@ -135,6 +134,7 @@ class Jobs(object):
         self.outputs = Queue() # (id, value) pairs
         self.ndone = 0    # number of finished jobs
         self.nq = 0  # number of queued results
+        self.__totaltime = timedelta(0)
 
     def putJob(self, job):
         self.inputs.append(job)
@@ -142,14 +142,15 @@ class Jobs(object):
     def getJob(self, job_id):
         return self.inputs[job_id]
 
-    def putResult(self, job_id, value):
-        self.outputs.put((job_id, value))
+    def putResult(self, TUPLE):
+        self.outputs.put(TUPLE)
         self.ndone += 1
         self.nq += 1
 
     def getResult(self):
-        (k, v) = self.outputs.get()
+        (k, v, t) = self.outputs.get()
         self.nq -= 1
+        self.__totaltime += t
         return v # return one value
 
     def getResults_sorted(self):
@@ -157,10 +158,11 @@ class Jobs(object):
         results = []
         keys = []
         for _ in xrange(self.nq):
-            (k, v) = self.outputs.get()
+            (k, v, t) = self.outputs.get()
             index = bisect(keys, k)
             keys.insert(index, k)
             results.insert(index, v)
+            self.__totaltime += t
         self.nq = 0
 
         return results
@@ -176,6 +178,10 @@ class Jobs(object):
 
     def nqueued(self):
         return self.nq
+
+    def totaltime(self):
+        return self.__totaltime
+
 
 
 def pyro_server(jobs, uri_q):
@@ -217,6 +223,7 @@ class CondorPool(object):
         #
         # wait for the jobs to finish
         #
+        t0 = datetime.now()
         try:
             if self.__progressbar:
                 pbar = ProgressBar(widgets=[Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
@@ -240,6 +247,13 @@ class CondorPool(object):
         #
         results = jobs.getResults_sorted()
 
+        # display total time
+        if self.__progressbar:
+            totaltime = datetime.now() - t0
+            print 'Total time:', totaltime
+            print 'Total CPU time:', jobs.totaltime()
+            print 'Ratio is %.2f' % (jobs.totaltime().total_seconds()/totaltime.total_seconds())
+
         #
         # terminate the pyro daemon
         #
@@ -262,6 +276,7 @@ class CondorPool(object):
                     maxval=jobs.total())
             pbar.start()
 
+        t0 = datetime.now()
         while (jobs.left() != 0) or (jobs.nqueued() != 0):
 
             if self.__progressbar:
@@ -272,8 +287,14 @@ class CondorPool(object):
             else:
                 sleep(2)
 
+        # display total time
         if self.__progressbar:
             pbar.finish()
+            totaltime = datetime.now() - t0
+            print 'Total time:', totaltime
+            print 'Total CPU time:', jobs.totaltime()
+            print 'Ratio is %.2f' % (jobs.totaltime().total_seconds()/totaltime.total_seconds())
+
 
         #
         # terminate the pyro daemon
@@ -359,6 +380,8 @@ def worker(argv):
     pyro_uri = argv[1]
     job_id = int(argv[2])
 
+    t0 = datetime.now()
+
     # write a small header at the start of stdout and stderr logs
     msg = '### {} log on {} ###\n'
     sys.stdout.write(msg.format('Output', socket.gethostname()))
@@ -392,10 +415,10 @@ def worker(argv):
     try:
         result = f(*args)
     except:
-        jobs.putResult(job_id, None)
+        jobs.putResult((job_id, None, datetime.now() - t0))
         raise
 
-    jobs.putResult(job_id, result)
+    jobs.putResult((job_id, result, datetime.now() - t0))
 
 
 if __name__ == '__main__':
