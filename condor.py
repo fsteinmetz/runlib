@@ -130,6 +130,7 @@ error = {dirlog}/$(Cluster).$(Process).error
 environment = "LD_LIBRARY_PATH={ld_library_path} PYTHONPATH={pythonpath} PATH={path}"
 requirements = (OpSys == "LINUX") && (LoadAvg < {loadavg})
 request_memory = {memory}
+request_cpus = 1
 '''
 
 condor_job = '''
