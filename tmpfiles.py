@@ -103,11 +103,10 @@ class Tmp(str):
             warnings.warn('Warning, {} has already been cleaned'.format(self))
             return
 
-        if not exists(self):
-            raise IOError('file {} does not exist'.format(self))
+        if exists(self):
+            # remove temporary file
+            remove(self, verbose=self.__verbose)
 
-        # remove temporary file
-        remove(self, verbose=self.__verbose)
         if self.__tmpdir != None:
             rmdir(self.__tmpdir)
         self.__clean = True
