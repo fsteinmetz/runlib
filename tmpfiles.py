@@ -183,7 +183,7 @@ class TmpInput(str):
                     copy = 'gunzip -c {} > {}'
                 rename = lambda x: x[:-3]
 
-            if filename.endswith('.Z'):
+            elif filename.endswith('.Z'):
                 if verbose:
                     copy = 'gunzip -vc {} > {}'
                 else:
