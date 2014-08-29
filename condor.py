@@ -119,28 +119,6 @@ class Custom(Widget):
 
 
 
-
-condor_header = '''
-universe = vanilla
-notification = Error
-executable = /usr/bin/env
-log = {dirlog}/$(Cluster).log
-output = {dirlog}/$(Cluster).$(Process).out
-error = {dirlog}/$(Cluster).$(Process).error
-environment = "LD_LIBRARY_PATH={ld_library_path} PYTHONPATH={pythonpath} PATH={path}"
-requirements = (OpSys == "LINUX") && (LoadAvg < {loadavg})
-request_memory = {memory}
-request_cpus = 1
-'''
-
-condor_job = '''
-arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} {job_id}'"
-queue
-'''
-
-
-
-
 class Jobs(object):
     '''
     A class to manage the jobs inputs/outputs
@@ -258,25 +236,22 @@ def pyro_server(jobs, uri_q):
     daemon.requestLoop()
 
 
-class CondorPool(object):
 
-    def __init__(self, log='/tmp/condor-log-{}'.format(getpass.getuser()),
-            loadavg = 0.8,
-            memory = 2000,
-            progressbar = True):
+class Pool(object):
+    '''
+    This is a generic base class
+    '''
 
-        self.__log = log
-        self.__loadavg = loadavg
-        self.__memory = memory
-        self.__server = None
+    def __init__(self, progressbar=True):
         self.__progressbar = progressbar
+        self.__server = None
 
     def map(self, function, *iterables):
 
         if len(iterables[0]) == 0:
             return []
 
-        jobs = self._condor_map_async(function, *iterables)
+        jobs = self._map_async(function, *iterables)
 
         #
         # wait for the jobs to finish
@@ -300,7 +275,6 @@ class CondorPool(object):
             self.__server.terminate()
             print 'interrupted!'
             raise
-
 
 
         #
@@ -330,7 +304,7 @@ class CondorPool(object):
             return
             yield
 
-        jobs = self._condor_map_async(function, *iterables)
+        jobs = self._map_async(function, *iterables)
 
         if self.__progressbar:
             custom = Custom()
@@ -365,7 +339,8 @@ class CondorPool(object):
         #
         self.__server.terminate()
 
-    def _condor_map_async(self, function, *iterables):
+
+    def _map_async(self, function, *iterables):
 
         if function.func_name == '<lambda>':
             raise Exception('Can not run lambda functions using condor.py')
@@ -391,18 +366,72 @@ class CondorPool(object):
             filename = filename[:-1]
             print 'DEBUG PYC'
         function_str = function.__name__
-        print 'Condor map function "{}" in "{}" with executable "{}"'.format(function_str, filename, sys.executable)
-        print 'Log directory is "{}"'.format(self.__log)
+        print 'Map function "{}" in "{}" with executable "{}"'.format(function_str, filename, sys.executable)
 
         for args in zip(*iterables):
             jobs.putJob([filename, function_str, args])
 
 
         #
+        # submit the jobs
+        #
+        self.submit(jobs, uri)
+
+        return jobs
+
+    def terminate_server(self):
+        self.__server.terminate()
+
+    def submit(self, jobs, uri):
+        self.terminate_server()
+        raise Exception('The Pool class is a base class, not intended to run jobs. Please use a subclass. ')
+
+
+
+class CondorPool(Pool):
+    '''
+    This is a pool using HTCondor system
+    '''
+
+    def __init__(self, log='/tmp/condor-log-{}'.format(getpass.getuser()),
+            loadavg = 0.8,
+            memory = 2000,
+            progressbar = True):
+
+        Pool.__init__(self, progressbar=progressbar)
+
+        self.__log = log
+        self.__loadavg = loadavg
+        self.__memory = memory
+
+    def submit(self, jobs, uri):
+
+        print 'Using condor'
+        print 'Log directory is "{}"'.format(self.__log)
+
+        #
         # create log directory if necessary
         #
         if not os.path.exists(self.__log):
             os.mkdir(self.__log)
+
+        condor_header = '''
+universe = vanilla
+notification = Error
+executable = /usr/bin/env
+log = {dirlog}/$(Cluster).log
+output = {dirlog}/$(Cluster).$(Process).out
+error = {dirlog}/$(Cluster).$(Process).error
+environment = "LD_LIBRARY_PATH={ld_library_path} PYTHONPATH={pythonpath} PATH={path}"
+requirements = (OpSys == "LINUX") && (LoadAvg < {loadavg})
+request_memory = {memory}
+request_cpus = 1
+'''
+
+        condor_job = '''
+arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} {job_id}'"
+queue
+'''
 
 
         #
@@ -433,14 +462,12 @@ class CondorPool(object):
         command = 'condor_submit {}'.format(condor_script)
         ret = system(command)
         if ret != 0:
-            self.__server.terminate()
+            self.terminate_server()
             condor_script.clean()
             raise Exception('Could not run %s' % (command))
 
         sleep(3)
         condor_script.clean()
-
-        return jobs
 
 
 
