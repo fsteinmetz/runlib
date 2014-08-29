@@ -471,6 +471,75 @@ queue
 
 
 
+class QsubPool(Pool):
+    '''
+    This is a pool using QSUB (SGE) system
+    '''
+
+    def __init__(self, log='/tmp/qsub-log-{}'.format(getpass.getuser()),
+                 loadavg = 0.8,
+                 memory = 2000,
+                 progressbar = True):
+
+        Pool.__init__(self, progressbar=progressbar)
+
+        self.__log = log
+        self.__loadavg = loadavg
+        self.__memory = memory
+
+    def submit(self, jobs, uri):
+
+        print 'Using QSUB'
+        print 'Log directory is "{}"'.format(self.__log)
+
+        #
+        # create log directory if necessary
+        #
+        if not os.path.exists(self.__log):
+            os.mkdir(self.__log)
+
+        qsub_job = '''
+#PBS -S /bin/bash
+#PBS -o /home/compiegn/tmp/out
+#PBS -e /home/compiegn/tmp/err
+# PBS_ENVIRONMENT {ld_library_path}:{pythonpath}:{path}
+export LD_LIBRARY_PATH={ld_library_path} 
+export PYTHONPATH={pythonpath} 
+export PATH={path}
+sh -c '{python_exec} -m {worker} {pyro_uri} {job_id}'
+'''
+
+        for i in xrange(jobs.total()):
+            #
+            # create the qsub script
+            #
+            with Tmp('qsub.pbs') as qsub_script:
+                fp = open(qsub_script, 'w')
+                fp.write(qsub_job.format(
+                        pythonpath = sjoin(sys.path,':'),
+                        path = os.environ.get("PATH", failobj=""),
+                        ld_library_path = os.environ.get("LD_LIBRARY_PATH", failobj=""),
+                        dirlog = self.__log,
+                        memory = self.__memory,
+                        loadavg = self.__loadavg,
+                        worker=__name__,
+                        python_exec = sys.executable,
+                        pyro_uri=uri,
+                        job_id=i,))
+
+                fp.close()
+
+                #
+                # submit the jobs to qsub
+                #
+                command = 'qsub {}'.format(qsub_script)
+                ret = system(command)
+                if ret != 0:
+                    self.terminate_server()
+                    raise Exception('Could not run %s' % (command))
+                
+
+
 def worker(argv):
 
     pyro_uri = argv[1]
