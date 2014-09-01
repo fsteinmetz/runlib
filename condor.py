@@ -498,46 +498,52 @@ class QsubPool(Pool):
         if not os.path.exists(self.__log):
             os.mkdir(self.__log)
 
-        qsub_job = '''
+        qsub_header = '''
 #PBS -S /bin/bash
-#PBS -o /home/compiegn/tmp/out
-#PBS -e /home/compiegn/tmp/err
-# PBS_ENVIRONMENT {ld_library_path}:{pythonpath}:{path}
+#PBS -o {dirlog}/out.$PBS_JOBID
+#PBS -e {dirlog}/err.$PBS_JOBID
+#PBS -t 0-{njobs}
 export LD_LIBRARY_PATH={ld_library_path} 
 export PYTHONPATH={pythonpath} 
 export PATH={path}
-sh -c '{python_exec} -m {worker} {pyro_uri} {job_id}'
 '''
 
-        for i in xrange(jobs.total()):
-            #
-            # create the qsub script
-            #
-            with Tmp('qsub.pbs') as qsub_script:
-                fp = open(qsub_script, 'w')
-                fp.write(qsub_job.format(
-                        pythonpath = sjoin(sys.path,':'),
-                        path = os.environ.get("PATH", failobj=""),
-                        ld_library_path = os.environ.get("LD_LIBRARY_PATH", failobj=""),
-                        dirlog = self.__log,
-                        memory = self.__memory,
-                        loadavg = self.__loadavg,
-                        worker=__name__,
-                        python_exec = sys.executable,
-                        pyro_uri=uri,
-                        job_id=i,))
+        qsub_job = '''
+sh -c '{python_exec} -m {worker} {pyro_uri} $PBS_ARRAYID'
+'''
 
-                fp.close()
+        #
+        # create the QSUB script
+        #
+        qsub_script = Tmp('qsub.pbs')
+        fp = open(qsub_script, 'w')
+        fp.write(qsub_header.format(
+            pythonpath = sjoin(sys.path,':'),
+            path = os.environ.get("PATH", failobj=""),
+            ld_library_path = os.environ.get("LD_LIBRARY_PATH", failobj=""),
+            dirlog = self.__log,
+            memory = self.__memory,
+            loadavg = self.__loadavg,
+            njobs = jobs.total()-1 ))
+        fp.write(qsub_job.format(
+                worker=__name__,
+                python_exec = sys.executable,
+                pyro_uri=uri))
+        fp.close()
 
-                #
-                # submit the jobs to qsub
-                #
-                command = 'qsub {}'.format(qsub_script)
-                ret = system(command)
-                if ret != 0:
-                    self.terminate_server()
-                    raise Exception('Could not run %s' % (command))
-                
+        #
+        # submit the jobs to QSUB
+        #
+        command = 'qsub {}'.format(qsub_script)
+        ret = system(command)
+        if ret != 0:
+            self.terminate_server()
+            qsub_script.clean()
+            raise Exception('Could not run %s' % (command))
+
+        sleep(3)
+        qsub_script.clean()
+
 
 
 def worker(argv):
