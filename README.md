@@ -1,21 +1,27 @@
 runlib
 ======
 
-Several tools for running python code.
+Several utility tools written in python, for massively parallel processing and
+data handling.
 
 
 1. condor.py
 ------------
 
-A python wrapper of [HTCondor](http://research.cs.wisc.edu/htcondor/) allowing to apply pure python functions.
+A clean and simple python interface to massively parallel computing frameworks.
+Initially developped for [HTCondor](http://research.cs.wisc.edu/htcondor/) ; it
+has been extended to support [Oracle Grid Engine (previously Sun Grid Engine)](http://en.wikipedia.org/wiki/Oracle_Grid_Engine).  
 
 _Example:_
+
+    from condor import CondorPool
 
     def f(x):
         return x**2
 
-    p = CondorPool()
-    results = p.map(f, range(5))
+    if __name__ == '__main__':
+        p = CondorPool()
+        results = p.map(f, range(5))
 
 
 2. tmpfiles.py
@@ -43,8 +49,7 @@ _Example:_
         else:
             f.clean()
 
-**locally**
+3. archive.py
+-------------
 
-A tool for using tmpfiles in standard executables.
-
-
+Archive data to external hard drives.

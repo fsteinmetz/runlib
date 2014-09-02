@@ -4,29 +4,53 @@
 
 
 '''
-A python wrapper of HTCondor allowing to apply pure python functions
+A python interface to massively parallel computing frameworks (HTCondor and Sun Grid Engine)
 
 * The method map(...) is similar to the standard map function but spawns the
-  function execution across condor
+  function execution using the processing framework.
 
 * the method imap_unordered is similar to the function itertools.imap
   it works like map(...) but returns an iterator immediately
   the returned data may be unordered
 
 
-Example:
+Example: using HTCondor framework
     def f(x):
         return x**2
 
-    p = CondorPool()
-    results = p.map(f, range(5))
+    if __name__ == '__main__':
+        p = CondorPool()
+        results = p.map(f, range(5))
 
-If the function has several arguments:
+Example: using SGE framework (Sun Grid Engine)
+    def f(x):
+        return x**2
+
+    if __name__ == '__main__':
+        p = QsubPool()
+        results = p.map(f, range(5))
+
+Example: if the function has several arguments
     def g(x,y):
         return x+y
 
-    p = CondorPool()
-    results = p.map(g, range(5), range(5,10))
+    if __name__ == '__main__':
+        p = CondorPool()
+        results = p.map(g, range(5), range(5,10))
+
+Example: using imap instead of map.
+    The method imap_unordered is equivalent to multiprocessing.Pool's
+    imap_unordered. It returns an iterator (imediately) instead of the list of
+    results. This allows to start using the results while processing is still
+    on-going.
+
+    def f(x):
+        return x**2
+
+    if __name__ == '__main__':
+        p = CondorPool()
+        for result in p.imap_unordered(f, range(5)):
+            print result # result will be available as soon as possible
 
 
 WARNING:
@@ -37,14 +61,13 @@ WARNING:
 
 HOW IT WORKS:
     A pyro4 server is started to share the inputs/outputs across the machines
-    The N inputs are stored in the server, alons with the functions name and
+    The N inputs are stored in the server, along with the functions name and
     the file containing it.
-    A condor script is written: this module (__main__ in condor.py) acts as the
-    worker, and is executed N times by condor - the pyro server address is passed as an
-    argument.
-    Each worker then connects to the server, gets the inputs and the function
-    to run, runs it and stores the results in the server.
-    When all jobs are done, the main script returns the values.
+    The worker (contained in the __main__ of this file) is called N times using
+    the processing framework SGE or HTCondor. The address of the pyro server is
+    passed to the worker, which connects to it and receives the function name
+    and file, along with the arguments to use. The function is executed and the
+    results are stored on the pyro server.
 '''
 
 
