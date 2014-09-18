@@ -28,6 +28,7 @@ A module to easily manage temporary files
 
 
 
+from __future__ import print_function
 from os.path import exists, basename, join, dirname
 from os import system, rmdir, statvfs
 import tempfile
@@ -116,7 +117,7 @@ class Tmp(str):
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
-            print('Warning: clean has not been called for file "{}"'.format(self))
+            print(('Warning: clean has not been called for file "{}"'.format(self)))
 
     def __enter__(self):
         return self
@@ -253,7 +254,7 @@ class TmpInput(str):
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
-            print('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self))
+            print(('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self)))
 
     def __enter__(self):
         return self
@@ -363,7 +364,7 @@ class TmpOutput(str):
         return self.__filename
 
     def move(self):
-        print 'move', self, 'to', self.target()
+        print('move', self, 'to', self.target())
 
         if not exists(self.__tmpfile):
             raise IOError('file {} does not exist'.format(self.__tmpfile))
@@ -378,7 +379,7 @@ class TmpOutput(str):
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
-            print('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self))
+            print(('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self)))
 
     def __enter__(self):
         return self
@@ -428,14 +429,14 @@ class TmpDir(str):
         TMPLIST.append(self)
 
         if self.__verbose:
-            print 'Creating temporary directory "{}"'.format(self)
+            print('Creating temporary directory "{}"'.format(self))
 
         return self
     
     def clean(self):
 
         if self.__verbose:
-            print 'Clean temporary directory "{}"'.format(self)
+            print('Clean temporary directory "{}"'.format(self))
         rmtree(self)
         self.__clean = True
         TMPLIST.remove(self)
@@ -443,7 +444,7 @@ class TmpDir(str):
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
-            print('Warning: clean has not been called for file "{}"'.format(self))
+            print(('Warning: clean has not been called for file "{}"'.format(self)))
 
     def __enter__(self):
         return self

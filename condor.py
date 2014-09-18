@@ -71,6 +71,7 @@ HOW IT WORKS:
 '''
 
 
+from __future__ import print_function
 import os
 import imp
 import sys
@@ -84,7 +85,6 @@ from os import system
 from tmpfiles import Tmp
 from sys import argv
 import inspect
-from string import join as sjoin
 from bisect import bisect
 from datetime import datetime, timedelta
 import Pyro4
@@ -117,9 +117,9 @@ except:
         def start(self): pass
         def update(self, N):
             if N != self.__previous:
-                print '[{}] {}/{} results have been received'.format(
+                print('[{}] {}/{} results have been received'.format(
                         datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        N, self.__total)
+                        N, self.__total))
                 self.__previous = N
             pass
         def finish(self):
@@ -195,7 +195,7 @@ class Jobs(object):
 
         results = []
         keys = []
-        for _ in xrange(self.nstored()):
+        for _ in range(self.nstored()):
             (job_id, v, t) = self.outputs.get()
             self.__status[job_id] = self.status_fetched
             index = bisect(keys, job_id)
@@ -248,14 +248,14 @@ def pyro_server(jobs, uri_q):
     # initialize the pyro4 daemon
     ip = socket.gethostbyname(socket.gethostname())
     if ip == '127.0.0.1':
-        print 'Error retrieving local ip, exiting...'
+        print('Error retrieving local ip, exiting...')
         exit(1)
     daemon = Pyro4.Daemon(host=ip)
 
     uri = daemon.register(jobs)
     uri_q.put(uri)
 
-    print 'starting pyro4 daemon at', uri
+    print('starting pyro4 daemon at', uri)
     daemon.requestLoop()
 
 
@@ -296,7 +296,7 @@ class Pool(object):
                 pbar.finish()
         except KeyboardInterrupt:
             self.__server.terminate()
-            print 'interrupted!'
+            print('interrupted!')
             raise
 
 
@@ -308,9 +308,9 @@ class Pool(object):
         # display total time
         if self.__progressbar:
             totaltime = datetime.now() - t0
-            print 'Total time:', totaltime
-            print 'Total CPU time:', jobs.totaltime()
-            print 'Ratio is %.2f' % (jobs.totaltime().total_seconds()/totaltime.total_seconds())
+            print('Total time:', totaltime)
+            print('Total CPU time:', jobs.totaltime())
+            print('Ratio is %.2f' % (jobs.totaltime().total_seconds()/totaltime.total_seconds()))
 
         #
         # terminate the pyro daemon
@@ -352,9 +352,9 @@ class Pool(object):
             custom.set('')
             pbar.finish()
             totaltime = datetime.now() - t0
-            print 'Total time:', totaltime
-            print 'Total CPU time:', jobs.totaltime()
-            print 'Ratio is %.2f' % (jobs.totaltime().total_seconds()/totaltime.total_seconds())
+            print('Total time:', totaltime)
+            print('Total CPU time:', jobs.totaltime())
+            print('Ratio is %.2f' % (jobs.totaltime().total_seconds()/totaltime.total_seconds()))
 
 
         #
@@ -365,7 +365,7 @@ class Pool(object):
 
     def _map_async(self, function, *iterables):
 
-        if function.func_name == '<lambda>':
+        if function.__name__ == '<lambda>':
             raise Exception('Can not run lambda functions using condor.py')
 
 
@@ -387,9 +387,9 @@ class Pool(object):
         filename = os.path.abspath(inspect.getfile(function))
         if filename.endswith('.pyc'):
             filename = filename[:-1]
-            print 'DEBUG PYC'
+            print('DEBUG PYC')
         function_str = function.__name__
-        print 'Map function "{}" in "{}" with executable "{}"'.format(function_str, filename, sys.executable)
+        print('Map function "{}" in "{}" with executable "{}"'.format(function_str, filename, sys.executable))
 
         for args in zip(*iterables):
             jobs.putJob([filename, function_str, args])
@@ -429,8 +429,8 @@ class CondorPool(Pool):
 
     def submit(self, jobs, uri):
 
-        print 'Using condor'
-        print 'Log directory is "{}"'.format(self.__log)
+        print('Using condor')
+        print('Log directory is "{}"'.format(self.__log))
 
         #
         # create log directory if necessary
@@ -463,13 +463,13 @@ queue
         condor_script = Tmp('condor.run')
         fp = open(condor_script, 'w')
         fp.write(condor_header.format(
-            pythonpath = sjoin(sys.path,':'),
-            path = os.environ.get("PATH", failobj=""),
-            ld_library_path = os.environ.get("LD_LIBRARY_PATH", failobj=""),
+            pythonpath = ':'.join(sys.path),
+            path = os.environ.get("PATH", ""),
+            ld_library_path = os.environ.get("LD_LIBRARY_PATH", ""),
             dirlog = self.__log,
             memory = self.__memory,
             loadavg = self.__loadavg))
-        for i in xrange(jobs.total()):
+        for i in range(jobs.total()):
             fp.write(condor_job.format(
                 worker=__name__,
                 python_exec = sys.executable,
@@ -512,8 +512,8 @@ class QsubPool(Pool):
 
     def submit(self, jobs, uri):
 
-        print 'Using QSUB'
-        print 'Log directory is "{}"'.format(self.__log)
+        print('Using QSUB')
+        print('Log directory is "{}"'.format(self.__log))
 
         #
         # create log directory if necessary
@@ -541,9 +541,9 @@ sh -c '{python_exec} -m {worker} {pyro_uri} $PBS_ARRAYID'
         qsub_script = Tmp('qsub.pbs')
         fp = open(qsub_script, 'w')
         fp.write(qsub_header.format(
-            pythonpath = sjoin(sys.path,':'),
-            path = os.environ.get("PATH", failobj=""),
-            ld_library_path = os.environ.get("LD_LIBRARY_PATH", failobj=""),
+            pythonpath = ':'.join(sys.path),
+            path = os.environ.get("PATH", ""),
+            ld_library_path = os.environ.get("LD_LIBRARY_PATH", ""),
             dirlog = self.__log,
             memory = self.__memory,
             loadavg = self.__loadavg,
