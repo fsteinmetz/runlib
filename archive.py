@@ -40,6 +40,27 @@ import hashlib
 from string import split
 from datetime import datetime
 
+def get_first_free_remote(remotes, filename):
+    '''
+    returns the index of the first free remote
+    of -1 if there is none
+    '''
+
+    for i in xrange(len(remotes)):
+
+        (rem, rempath) = remotes[i]
+
+        free = get_free_space_mb(rempath)
+        if free == None: continue
+
+        fs = file_size(filename)
+        if fs + margin > free:
+            continue
+        else:
+            return i
+
+    return -1
+
 def clean_dir(directory):
     '''
     remove the directory if empty
@@ -119,29 +140,20 @@ def archive(remotes, paths):
         #
         # select the first remote with enough free space
         #
-        allfull = False
-        for (rem, rempath) in remotes:
 
-            free = get_free_space_mb(rempath)
-            if free == None: continue
+        iremote = get_first_free_remote(remotes, filename)
 
-            fs = file_size(filename)
-            if fs + margin > free:
-                continue
-            else:
-                break
-
-            allfull = True
-
-        if allfull:
-            print '   All remotes are full or offline'
+        if iremote == -1:
+            print '   Skipped: all remotes are full or offline'
             continue
+        else:
+            (rem, rempath) = remotes[iremote]
 
 
         #
         # archive to selected remote
         #
-        print '   Copy to {}... (at {})'.format(rem, datetime.now())
+        print '   Copy to {}... ({})'.format(rem, datetime.now())
 
         target = join(rempath, filename)
         targettmp = target + '.tmp'
@@ -150,8 +162,15 @@ def archive(remotes, paths):
         if not exists(dirname(target)):
             os.makedirs(dirname(target))
 
+        sizeMB = os.stat(filename).st_size/(1024.**2)
+        t0 = datetime.now()
+
         shutil.copyfile(filename, targettmp)
         shutil.move(targettmp, target)
+
+        t1 = datetime.now()
+        deltaT = (t1-t0).total_seconds()
+        print '   done. ({:.2f}MB in {}s, {:.2f}MB/s)'.format(sizeMB, deltaT, sizeMB/deltaT)
 
         # get sha256sum
         print '   get shasum ...'
@@ -191,6 +210,10 @@ def trash(remotes):
         if original.startswith('/'):
             original = original[1:]
 
+        if not os.path.islink(original):
+            print '   Error, {} is not a link'.format(original)
+            continue
+
         (rem, shasum) = split(os.readlink(original), '/')
 
         rempath = dict(remotes)[rem]
@@ -200,7 +223,7 @@ def trash(remotes):
         print '{} (in {})'.format(original, rem)
 
         if not exists(rempath):
-            print 'Please make {} available'.format(rem)
+            print '   Please make {} available'.format(rem)
             continue
 
         if not exists(archived):
@@ -289,8 +312,11 @@ def main():
 
     print 'List of remotes:'
     for line in lines:
-        if line.startswith('#'): pass
-        name, path = line.split()
+
+        if line.startswith('#'): continue
+        try:
+            name, path = line.split()
+        except: continue
         remotes.append((name, path))
 
         # create path if it does not exist
@@ -305,12 +331,12 @@ def main():
         else:
             print name, get_free_space_mb(path), 'Mb', path
 
-        # create 'archive.cfg' on remote
-        # just to write the remote name
-        desc = join(path, config)
-        if not exists(desc):
-            with open(desc, 'w') as fp:
-                fp.write(name+'\n')
+            # create 'archive.cfg' on remote
+            # just to write the remote name
+            desc = join(path, config)
+            if not exists(desc):
+                with open(desc, 'w') as fp:
+                    fp.write(name+'\n')
 
 
 
