@@ -39,6 +39,7 @@ from os.path import exists, join, dirname
 import hashlib
 from string import split
 from datetime import datetime
+from glob import glob
 
 def get_first_free_remote(remotes, filename):
     '''
@@ -100,10 +101,15 @@ def file_size(filename):
 
 def loop(paths):
     for path in paths:
-        for (dirpath, dirnames, filenames) in os.walk(path):
-            dirnames.sort()
-            for filename in filenames:
-                yield join(dirpath, filename)
+
+        if isdir(path):
+            for (dirpath, dirnames, filenames) in os.walk(path):
+                dirnames.sort()
+                for filename in filenames:
+                    yield join(dirpath, filename)
+
+        else:
+            for filename in glob(path): yield filename
 
 
 def archive(remotes, paths):
