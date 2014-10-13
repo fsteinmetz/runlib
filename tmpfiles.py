@@ -30,7 +30,7 @@ A module to easily manage temporary files
 
 from __future__ import print_function
 from os.path import exists, basename, join, dirname
-from os import system, rmdir, statvfs
+from os import system, statvfs
 import tempfile
 import warnings
 from shutil import rmtree
@@ -52,9 +52,9 @@ def df(path):
 def remove(filename, verbose=False):
     ''' remove a file '''
     if verbose:
-        system('rm -fv {}'.format(filename))
+        system('rm -fv "{}"'.format(filename))
     else:
-        system('rm -f {}'.format(filename))
+        system('rm -f "{}"'.format(filename))
 
 
 class Tmp(str):
@@ -109,7 +109,7 @@ class Tmp(str):
             remove(self, verbose=self.__verbose)
 
         if self.__tmpdir != None:
-            rmdir(self.__tmpdir)
+            rmtree(self.__tmpdir)
         self.__clean = True
         TMPLIST.remove(self)
 
@@ -179,29 +179,29 @@ class TmpInput(str):
 
             if filename.endswith('.gz'):
                 if verbose:
-                    copy = 'gunzip -vc {} > {}'
+                    copy = 'gunzip -vc "{}" > "{}"'
                 else:
-                    copy = 'gunzip -c {} > {}'
+                    copy = 'gunzip -c "{}" > "{}"'
                 rename = lambda x: x[:-3]
 
             elif filename.endswith('.Z'):
                 if verbose:
-                    copy = 'gunzip -vc {} > {}'
+                    copy = 'gunzip -vc "{}" > "{}"'
                 else:
-                    copy = 'gunzip -c {} > {}'
+                    copy = 'gunzip -c "{}" > "{}"'
                 rename = lambda x: x[:-2]
 
             elif filename.endswith('.bz2'):
                 if verbose:
-                    copy = 'bunzip2 -vc {} > {}'
+                    copy = 'bunzip2 -vc "{}" > "{}"'
                 else:
-                    copy = 'bunzip2 -c {} > {}'
+                    copy = 'bunzip2 -c "{}" > "{}"'
                 rename = lambda x: x[:-4]
 
             elif verbose:
-                copy = 'cp -v {} {}'
+                copy = 'cp -v "{}" "{}"'
             else:
-                copy = 'cp {} {}'
+                copy = 'cp "{}" "{}"'
 
 
         # check that input file exists
@@ -244,7 +244,7 @@ class TmpInput(str):
 
         # remove temporary file
         remove(self.__tmpfile, verbose=self.__verbose)
-        rmdir(self.__tmpdir)
+        rmtree(self.__tmpdir)
         self.__clean = True
         TMPLIST.remove(self)
 
@@ -314,9 +314,9 @@ class TmpOutput(str):
 
         if copy == None:
             if verbose:
-                copy = 'cp -v {} {}'
+                copy = 'cp -v "{}" "{}"'
             else:
-                copy = 'cp {} {}'
+                copy = 'cp "{}" "{}"'
 
         # check that output file does not exist
         if not overwrite and exists(filename):
@@ -356,7 +356,7 @@ class TmpOutput(str):
         if exists(self.__tmpfile):
             remove(self.__tmpfile, verbose=self.__verbose)
 
-        rmdir(self.__tmpdir)
+        rmtree(self.__tmpdir)
         self.__clean = True
         TMPLIST.remove(self)
 
@@ -432,7 +432,7 @@ class TmpDir(str):
             print('Creating temporary directory "{}"'.format(self))
 
         return self
-    
+
     def clean(self):
 
         if self.__verbose:
@@ -489,7 +489,7 @@ def test_output():
     Tmp.cleanAll()
 
 def test_dir():
-    
+
     d = TmpDir(verbose=True)
     filename = join(d, 'test')
     open(filename, 'w').write('test')
