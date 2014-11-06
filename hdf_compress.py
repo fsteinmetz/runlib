@@ -10,17 +10,13 @@ import pyhdf.SD
 from runlib.tmpfiles import TmpOutput
 import multiprocessing
 from optparse import OptionParser
-try:
-    from progressbar import ProgressBar
-except ImportError:
-    ProgressBar = lambda : lambda x:x # disactivate progressbar if not available
 
 
 
 COMPRESS = (pyhdf.SD.SDC.COMP_DEFLATE, 9)
 
 
-def compress(filein):
+def compress(filein, force=False):
 
     #
     # initialization
@@ -38,7 +34,7 @@ def compress(filein):
         compress = f1.select(0).getcompress()
     except: pass
 
-    if compress == COMPRESS:
+    if (not force) and (compress == COMPRESS):
         return 2 # already compressed
 
     #
@@ -104,10 +100,15 @@ def main():
     #
     # parse arguments
     #
-    parser = OptionParser()
+    parser = OptionParser() # TODO: deprecate https://docs.python.org/2/library/optparse.html
     parser.add_option('-n', '--nthreads', dest='nthreads', type='int',
           default=1,
           help='number of threads ; default = 1 ; if 0, the number of CPUs is used')
+    parser.add_option('-f', '--force', dest='force',
+            action="store_true",
+            default=False,
+            help='force to recompress the file')
+    
 
     (options, args) = parser.parse_args()
 
@@ -116,9 +117,7 @@ def main():
 
     if options.nthreads == 1:
         # sequential process
-        res = []
-        for i in ProgressBar()(args):
-            res.append(compress(i))
+        res = map(compress, args, [options.force,]*len(args))
 
     else:
         # start the pool and process the files
@@ -130,7 +129,7 @@ def main():
 
         # NOTE
         # see http://stackoverflow.com/questions/1408356/keyboard-interrupts-with-pythons-multiprocessing-pool
-        res = pool.map_async(compress, args).get(1e10)
+        res = pool.map_async(compress, args, [options.force,]*len(args)).get(1e10)
 
     print 'done.'
     print '{} existing files'.format(res.count(2))
