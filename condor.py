@@ -417,7 +417,7 @@ class CondorPool(Pool):
     '''
 
     def __init__(self, log='/tmp/condor-log-{}'.format(getpass.getuser()),
-            loadavg = 0.8,
+            loadavg = 2.,
             memory = 2000,
             progressbar = True):
 
