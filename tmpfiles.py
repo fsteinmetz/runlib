@@ -36,9 +36,33 @@ import warnings
 from shutil import rmtree
 
 
-TMPLIST = [] # a list of all 'dirty' tmpfiles
 
 
+# module-wide parameters
+class Cfg:
+    ''' store module-wise parameters
+    to be used as: from tmpfiles import cfg
+                   cfg.tmpdir = <some temporary directory>
+                   cfg.verbose = True
+                   etc.
+    '''
+    def __init__(self):
+        # default values
+        self.tmpdir = '/tmp/'  # location of the temporary directory
+        self.verbose = False   # verbosity
+        self.freespace = 1000  # free disk space required, in MB
+
+        # global parameter
+        self.TMPLIST = []    # a list of all 'dirty' tmpfiles
+
+    def check_free_space(self):
+
+        assert exists(self.tmpdir)
+
+        if (self.freespace > 0) and (df(self.tmpdir) < self.freespace):
+            raise IOError('Not enough free space in {} ({} MB remaining, {} MB required)'.format(
+                self.tmpdir, df(self.tmpdir), self.freespace))
+cfg = Cfg()
 
 def df(path):
     '''
@@ -49,9 +73,9 @@ def df(path):
     return available
 
 
-def remove(filename, verbose=False):
+def remove(filename):
     ''' remove a file '''
-    if verbose:
+    if cfg.verbose:
         system('rm -fv "{}"'.format(filename))
     else:
         system('rm -f "{}"'.format(filename))
@@ -62,40 +86,24 @@ class Tmp(str):
     A simple temporary file created by the user, removed afterwards
 
     Parameters:
-        * tmpfile
-          The temporary file name
-          - If it is a single file name (without directory), it will be
-            initialized in the temporary directory
-          - If it is a full file name, it will remain as-is
-        * tmpdir
-          In previous 1st case, this determines the temporary directory to use
-        * verbose
-        * freespace: minimum free space
-
+        * tmpfile: The temporary file name (default: 'tmpfile')
+          Should not contain a directory, the directory is provided module-wise
     '''
-    def __new__(cls,
-            tmpfile,
-            tmpdir='/tmp/',
-            verbose=False,
-            freespace=1000):
+    def __new__(cls, tmpfile='tmpfile'):
 
-        if dirname(tmpfile) == '':
-            # check free disk space
-            if (freespace > 0) and (df(tmpdir) < freespace):
-                raise IOError('Not enough free space in {} ({} MB remaining, {} MB required)'.format(
-                    tmpdir, df(tmpdir), freespace))
+        assert dirname(tmpfile) == ''
 
-            tmpd = tempfile.mkdtemp(dir=tmpdir, prefix='tmpfiles_')
-            tmpfile = join(tmpd, tmpfile)
-        else:
-            tmpd = None
+        # check free disk space
+        cfg.check_free_space()
 
+        tmpd = tempfile.mkdtemp(dir=cfg.tmpdir, prefix='tmpfiles_')
+        tmpfile = join(tmpd, tmpfile)
 
         self = str.__new__(cls, tmpfile)
         self.__clean = False
         self.__tmpdir = tmpd
-        self.__verbose = verbose
-        TMPLIST.append(self)
+        self.__verbose = cfg.verbose
+        cfg.TMPLIST.append(self)
         return self
 
     def clean(self):
@@ -106,12 +114,11 @@ class Tmp(str):
 
         if exists(self):
             # remove temporary file
-            remove(self, verbose=self.__verbose)
+            remove(self)
 
-        if self.__tmpdir != None:
-            rmtree(self.__tmpdir)
+        rmtree(self.__tmpdir)
         self.__clean = True
-        TMPLIST.remove(self)
+        cfg.TMPLIST.remove(self)
 
 
     def __del__(self):
@@ -128,8 +135,8 @@ class Tmp(str):
 
     @staticmethod
     def cleanAll():
-        while len(TMPLIST) != 0:
-            TMPLIST[0].clean()
+        while len(cfg.TMPLIST) != 0:
+            cfg.TMPLIST[0].clean()
 
 
 class TmpInput(str):
@@ -163,42 +170,35 @@ class TmpInput(str):
     def __new__(cls,
             filename,
             copy = None,
-            rename = lambda x:x,
-            tmpdir='/tmp/',
-            verbose=False,
-            freespace=1000):
-
-        assert exists(tmpdir)
+            rename = lambda x:x):
 
         # check free disk space
-        if (freespace > 0) and (df(tmpdir) < freespace):
-            raise IOError('Not enough free space in {} ({} MB remaining, {} MB required)'.format(
-                tmpdir, df(tmpdir), freespace))
+        cfg.check_free_space()
 
         if copy == None:
 
             if filename.endswith('.gz'):
-                if verbose:
+                if cfg.verbose:
                     copy = 'gunzip -vc "{}" > "{}"'
                 else:
                     copy = 'gunzip -c "{}" > "{}"'
                 rename = lambda x: x[:-3]
 
             elif filename.endswith('.Z'):
-                if verbose:
+                if cfg.verbose:
                     copy = 'gunzip -vc "{}" > "{}"'
                 else:
                     copy = 'gunzip -c "{}" > "{}"'
                 rename = lambda x: x[:-2]
 
             elif filename.endswith('.bz2'):
-                if verbose:
+                if cfg.verbose:
                     copy = 'bunzip2 -vc "{}" > "{}"'
                 else:
                     copy = 'bunzip2 -c "{}" > "{}"'
                 rename = lambda x: x[:-4]
 
-            elif verbose:
+            elif cfg.verbose:
                 copy = 'cp -v "{}" "{}"'
             else:
                 copy = 'cp "{}" "{}"'
@@ -210,7 +210,7 @@ class TmpInput(str):
 
         # determine temporary file name
         base = rename(basename(filename))
-        tmpd = tempfile.mkdtemp(dir=tmpdir, prefix='tmpfiles_')
+        tmpd = tempfile.mkdtemp(dir=cfg.tmpdir, prefix='tmpfiles_')
         tmpfile = join(tmpd, base)
 
         assert not exists(tmpfile)
@@ -218,7 +218,7 @@ class TmpInput(str):
         # does the copy
         cmd = copy.format(filename, tmpfile)
         if system(cmd):
-            remove(tmpfile, verbose=verbose)
+            remove(tmpfile)
             raise IOError('Error executing "{}"'.format(cmd))
 
         # create the object and sets its attributes
@@ -226,10 +226,9 @@ class TmpInput(str):
         self.__tmpfile = tmpfile
         self.__tmpdir = tmpd
         self.__filename = filename
-        self.__verbose = verbose
         self.__clean = False
 
-        TMPLIST.append(self)
+        cfg.TMPLIST.append(self)
 
         return self
 
@@ -243,10 +242,10 @@ class TmpInput(str):
             raise IOError('file {} does not exist'.format(self.__tmpfile))
 
         # remove temporary file
-        remove(self.__tmpfile, verbose=self.__verbose)
+        remove(self.__tmpfile)
         rmtree(self.__tmpdir)
         self.__clean = True
-        TMPLIST.remove(self)
+        cfg.TMPLIST.remove(self)
 
     def source(self):
         return self.__filename
@@ -265,8 +264,8 @@ class TmpInput(str):
 
     @staticmethod
     def cleanAll():
-        while len(TMPLIST) != 0:
-            TMPLIST[0].clean()
+        while len(cfg.TMPLIST) != 0:
+            cfg.TMPLIST[0].clean()
 
 class TmpOutput(str):
     '''
@@ -299,21 +298,13 @@ class TmpOutput(str):
     def __new__(cls,
             filename,
             copy = None,
-            tmpdir='/tmp/',
-            overwrite=False,
-            verbose=False,
-            freespace=1000):
-
-        assert exists(tmpdir)
+            overwrite=False):
 
         # check free disk space
-        if (freespace > 0) and (df(tmpdir) < freespace):
-            raise IOError('Not enough free space in {} ({} MB remaining, {} MB required)'.format(
-                tmpdir, df(tmpdir), freespace))
-
+        cfg.check_free_space()
 
         if copy == None:
-            if verbose:
+            if cfg.verbose:
                 copy = 'cp -v "{}" "{}"'
             else:
                 copy = 'cp "{}" "{}"'
@@ -328,7 +319,7 @@ class TmpOutput(str):
 
         # determine temporary file name
         base = basename(filename)
-        tmpd = tempfile.mkdtemp(dir=tmpdir, prefix='tmpfiles_')
+        tmpd = tempfile.mkdtemp(dir=cfg.tmpdir, prefix='tmpfiles_')
         tmpfile = join(tmpd, base)
 
         assert not exists(tmpfile)
@@ -339,10 +330,9 @@ class TmpOutput(str):
         self.__tmpdir = tmpd
         self.__filename = filename
         self.__cp = copy
-        self.__verbose = verbose
         self.__clean = False
 
-        TMPLIST.append(self)
+        cfg.TMPLIST.append(self)
 
         return self
 
@@ -354,11 +344,11 @@ class TmpOutput(str):
 
         # remove temporary file (may not exist)
         if exists(self.__tmpfile):
-            remove(self.__tmpfile, verbose=self.__verbose)
+            remove(self.__tmpfile)
 
         rmtree(self.__tmpdir)
         self.__clean = True
-        TMPLIST.remove(self)
+        cfg.TMPLIST.remove(self)
 
     def target(self):
         return self.__filename
@@ -390,8 +380,8 @@ class TmpOutput(str):
 
     @staticmethod
     def cleanAll():
-        while len(TMPLIST) != 0:
-            TMPLIST[0].clean()
+        while len(cfg.TMPLIST) != 0:
+            cfg.TMPLIST[0].clean()
 
 class TmpDir(str):
     '''
@@ -403,43 +393,35 @@ class TmpDir(str):
         d.clean() # remove the temporary directory
     '''
 
-    def __new__(cls,
-            tmpdir='/tmp/',
-            verbose=False,
-            freespace=1000):
-
-        assert exists(tmpdir)
+    def __new__(cls):
 
         # check free disk space
-        if (freespace > 0) and (df(tmpdir) < freespace):
-            raise IOError('Not enough free space in {} ({} MB remaining, {} MB required)'.format(
-                tmpdir, df(tmpdir), freespace))
+        cfg.check_free_space()
 
         # create the temporary directory
-        tmpd = tempfile.mkdtemp(dir=tmpdir, prefix='tmpdir_')
+        tmpd = tempfile.mkdtemp(dir=cfg.tmpdir, prefix='tmpdir_')
         ret = system('mkdir -p {}'.format(tmpd))
         if ret:
             raise 'Error creating directory {}'.format(tmpd)
 
         # create the object and sets its attributes
         self = str.__new__(cls, tmpd)
-        self.__verbose = verbose
         self.__clean = False
 
-        TMPLIST.append(self)
+        cfg.TMPLIST.append(self)
 
-        if self.__verbose:
+        if cfg.verbose:
             print('Creating temporary directory "{}"'.format(self))
 
         return self
 
     def clean(self):
 
-        if self.__verbose:
+        if cfg.verbose:
             print('Clean temporary directory "{}"'.format(self))
         rmtree(self)
         self.__clean = True
-        TMPLIST.remove(self)
+        cfg.TMPLIST.remove(self)
 
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
@@ -455,33 +437,44 @@ class TmpDir(str):
 
     @staticmethod
     def cleanAll():
-        while len(TMPLIST) != 0:
-            TMPLIST[0].clean()
+        while len(cfg.TMPLIST) != 0:
+            cfg.TMPLIST[0].clean()
 
 
 #
 # tests
 #
 def test_tmp():
-    f = Tmp('myfile.tmp', verbose=True, freespace=1)
+    cfg.verbose=True
+    cfg.freespace = 1
+
+    f = Tmp('myfile.tmp')
     open(f, 'w').write('test')
     f.clean()
 
+    with Tmp() as f:
+        open(f, 'w').write('test')
+
 def test_input():
+    cfg.verbose=True
+    cfg.freespace = 1
+
     # create temporary file
-    tmp = Tmp('myfile.tmp', verbose=True)
+    tmp = Tmp('myfile.tmp')
     open(tmp, 'w').write('test')
 
     #... and use it as a temporary input
-    TmpInput(tmp, verbose=True)
+    TmpInput(tmp)
 
     # clean all
     Tmp.cleanAll()
 
 def test_output():
+    cfg.verbose=True
+    cfg.freespace = 10
 
-    f = Tmp('myfile.tmp') # the target is also a temporary file
-    tmp = TmpOutput(f, verbose=True)
+    f = Tmp() # the target is also a temporary file
+    tmp = TmpOutput(f)
 
     open(tmp, 'w').write('test')
 
@@ -489,8 +482,10 @@ def test_output():
     Tmp.cleanAll()
 
 def test_dir():
+    cfg.verbose=True
+    cfg.freespace = 10
 
-    d = TmpDir(verbose=True)
+    d = TmpDir()
     filename = join(d, 'test')
     open(filename, 'w').write('test')
     d.clean()
