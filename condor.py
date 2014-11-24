@@ -455,42 +455,39 @@ request_cpus = 1
 arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} {job_id}'"
 queue
 '''
+        with Tmp('condor.run') as condor_script:
+
+            #
+            # create the condor script
+            #
+            fp = open(condor_script, 'w')
+            fp.write(condor_header.format(
+                pythonpath = ':'.join(sys.path),
+                path = os.environ.get("PATH", ""),
+                ld_library_path = os.environ.get("LD_LIBRARY_PATH", ""),
+                dirlog = self.__log,
+                memory = self.__memory,
+                loadavg = self.__loadavg))
+            for i in range(jobs.total()):
+                fp.write(condor_job.format(
+                    worker=__name__,
+                    python_exec = sys.executable,
+                    pyro_uri=uri,
+                    job_id=i,
+                    ))
+            fp.close()
 
 
-        #
-        # create the condor script
-        #
-        condor_script = Tmp('condor.run')
-        fp = open(condor_script, 'w')
-        fp.write(condor_header.format(
-            pythonpath = ':'.join(sys.path),
-            path = os.environ.get("PATH", ""),
-            ld_library_path = os.environ.get("LD_LIBRARY_PATH", ""),
-            dirlog = self.__log,
-            memory = self.__memory,
-            loadavg = self.__loadavg))
-        for i in range(jobs.total()):
-            fp.write(condor_job.format(
-                worker=__name__,
-                python_exec = sys.executable,
-                pyro_uri=uri,
-                job_id=i,
-                ))
-        fp.close()
+            #
+            # submit the jobs to condor
+            #
+            command = 'condor_submit {}'.format(condor_script)
+            ret = system(command)
+            if ret != 0:
+                self.terminate_server()
+                raise Exception('Could not run %s' % (command))
 
-
-        #
-        # submit the jobs to condor
-        #
-        command = 'condor_submit {}'.format(condor_script)
-        ret = system(command)
-        if ret != 0:
-            self.terminate_server()
-            condor_script.clean()
-            raise Exception('Could not run %s' % (command))
-
-        sleep(3)
-        condor_script.clean()
+            sleep(3)
 
 
 
