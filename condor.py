@@ -308,8 +308,8 @@ class Pool(object):
         # display total time
         if self.__progressbar:
             totaltime = datetime.now() - t0
-            print('Total time:', totaltime)
-            print('Total CPU time:', jobs.totaltime())
+            print('Elapsed time:', totaltime)
+            print('Total time:', jobs.totaltime())
             print('Ratio is %.2f' % (jobs.totaltime().total_seconds()/totaltime.total_seconds()))
 
         #
