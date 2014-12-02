@@ -481,7 +481,7 @@ queue
             #
             # submit the jobs to condor
             #
-            command = 'condor_submit {}'.format(condor_script)
+            command = 'condor_submit -terse {}'.format(condor_script)
             ret = system(command)
             if ret != 0:
                 self.terminate_server()
