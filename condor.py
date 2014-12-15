@@ -153,11 +153,18 @@ class Jobs(object):
     status_stored  = 2     # stored   - job has been stored in results queue
     status_fetched  = 3    # fetched  - job has been dequeued
 
-    def __init__(self):
+    def __init__(self, filename, function_str):
         self.inputs = []
-        self.outputs = Queue() # (id, value) pairs
+        self.outputs = Queue()  # (id, value) pairs
         self.__totaltime = timedelta(0)
         self.__status = []
+        self.__file_func = [filename, function_str]      # name of the file, and name of the function to execute
+
+    def filename(self):
+        return self.__file_func[0]
+
+    def function_str(self):
+        return self.__file_func[1]
 
     def putJob(self, job):
 
@@ -368,18 +375,6 @@ class Pool(object):
         if function.__name__ == '<lambda>':
             raise Exception('Can not run lambda functions using condor.py')
 
-
-        #
-        # start the pyro daemon in a thread
-        #
-        uri_q = Queue()
-        self.__server = Process(target=pyro_server, args=(Jobs(), uri_q))
-        self.__server.start()
-        sleep(1)
-        uri = uri_q.get()
-        uri_q.close()
-        jobs = Pyro4.Proxy(uri)
-
         #
         # initializations
         #
@@ -391,9 +386,22 @@ class Pool(object):
         function_str = function.__name__
         print('Map function "{}" in "{}" with executable "{}"'.format(function_str, filename, sys.executable))
 
-        for args in zip(*iterables):
-            jobs.putJob([filename, function_str, args])
+        #
+        # start the pyro daemon in a thread
+        #
+        uri_q = Queue()
+        self.__server = Process(target=pyro_server, args=(Jobs(filename, function_str), uri_q))
+        self.__server.start()
+        sleep(1)
+        uri = uri_q.get()
+        uri_q.close()
+        jobs = Pyro4.Proxy(uri)
 
+        #
+        # Add jobs to server
+        #
+        for args in zip(*iterables):
+            jobs.putJob(args)
 
         #
         # submit the jobs
@@ -584,7 +592,9 @@ def worker(argv):
     # connect to the daemon
     #
     jobs = Pyro4.Proxy(pyro_uri)
-    filename, function, args = jobs.getJob(job_id)
+    filename = jobs.filename()
+    function = jobs.function_str()
+    args = jobs.getJob(job_id)
 
     #
     # for safety,"cd" to the directory containing the target function
