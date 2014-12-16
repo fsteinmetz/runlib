@@ -149,9 +149,11 @@ class Jobs(object):
 
     # status of jobs
     status_waiting = 0     # waiting  - job has not started
-    status_running = 1     # running  - job is running
-    status_stored  = 2     # stored   - job has been stored in results queue
-    status_fetched  = 3    # fetched  - job has been dequeued
+    status_sending = 1     # sending  - job is being sent to the worker
+    status_running = 2     # running  - job is running
+    status_storing = 3     # storing  - job is being stored in results queue
+    status_stored  = 4     # stored   - job has been stored in results queue
+    status_fetched  = 5    # fetched  - job has been dequeued
 
     def __init__(self, filename, function_str):
         self.inputs = []
@@ -175,18 +177,26 @@ class Jobs(object):
 
     def getJob(self, job_id):
 
-        # the job becomes 'running'
+        # starting to send the job
+        self.__status[job_id] = self.status_sending
+
+        args = self.inputs[job_id]
+
+        # job becomes 'running'
         self.__status[job_id] = self.status_running
 
-        return self.inputs[job_id]
+        return args
 
     def putResult(self, TUPLE):
 
         # the job becomes 'stored'
         job_id = TUPLE[0]
-        self.__status[job_id] = self.status_stored
+        self.__status[job_id] = self.status_storing
 
         self.outputs.put(TUPLE)
+
+        # done storing the job
+        self.__status[job_id] = self.status_stored
 
     def getResult(self):
 
