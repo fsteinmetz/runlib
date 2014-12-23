@@ -306,11 +306,7 @@ class TmpOutput(str):
     Parameters:
        * filename: the target file which will be first written locally, then
          copied to the destination
-       * copy: a custom command for copying the files
-       * uniq: whether a unique temporary filename should be used
-       * tmpdir: the temporary firectory
        * overwrite: whether the target should be overwritten
-       * verbose
 
     Example:
         f = TmpOutput('/path/to/target.data')
@@ -329,17 +325,15 @@ class TmpOutput(str):
 
     def __new__(cls,
             filename,
-            copy = None,
             overwrite=False):
 
         # check free disk space
         cfg.check_free_space()
 
-        if copy == None:
-            if cfg.verbose:
-                copy = 'cp -v "{}" "{}"'
-            else:
-                copy = 'cp "{}" "{}"'
+        if cfg.verbose:
+            copy = 'cp -v "{}" "{}"'
+        else:
+            copy = 'cp "{}" "{}"'
 
         # check that output file does not exist
         if not overwrite and exists(filename):
