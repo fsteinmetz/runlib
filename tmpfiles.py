@@ -30,10 +30,11 @@ A module to easily manage temporary files
 
 from __future__ import print_function
 from os.path import exists, basename, join, dirname
-from os import system, statvfs
+from os import system, rmdir, statvfs, walk
 import tempfile
 import warnings
 from shutil import rmtree
+import fnmatch
 
 
 
@@ -71,6 +72,26 @@ def df(path):
     res = statvfs(path)
     available = int(res.f_frsize*res.f_bavail/(1024.**2))
     return available
+
+def findfiles(path, pat='*', split=False):
+    '''
+    recursively finds files starting from path and using a pattern
+    if split, returns (root, filename), otherwise the full path
+    '''
+    if isinstance(path, list):
+        paths = path
+    else:
+        paths = [path]
+    for path in paths:
+        for root, dirnames, filenames in walk(path):
+            dirnames.sort()
+            filenames.sort()
+            for filename in fnmatch.filter(filenames, pat):
+                if split:
+                    yield (root, filename)
+                else:
+                    fname = join(root, filename)
+                    yield fname
 
 
 def remove(filename):
@@ -116,7 +137,8 @@ class Tmp(str):
             # remove temporary file
             remove(self)
 
-        rmtree(self.__tmpdir)
+        if self.__tmpdir != None:
+            rmtree(self.__tmpdir)
         self.__clean = True
         cfg.TMPLIST.remove(self)
 
@@ -124,7 +146,7 @@ class Tmp(str):
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
-            print(('Warning: clean has not been called for file "{}"'.format(self)))
+            print('Warning: clean has not been called for file "{}"'.format(self))
 
     def __enter__(self):
         return self
@@ -146,14 +168,11 @@ class TmpInput(str):
     Parameters
        * filename: the original file which will be copied locally and
          uncompressed if necessary
-       * copy:
-           - None
-             => automatic mode, detect gz or bz2, otherwise just cp
-           - a string, like "cp {} {}"
-             => will be formatted with .format(source, target)
-       * rename: a function applied to the basename
-         (example: lambda x: x[:-3] to remove extension)
-       * tmpdir: the temporary directory
+       * pattern: if the TmpInput contains multiple files, this pattern
+         determines which file to use as the reference file name. If there are
+         multiple files, take the first one in alphabetical order.
+         default value: '*'
+       * tmpdir: the base temporary directory
        * verbose
 
     Example:
@@ -169,57 +188,74 @@ class TmpInput(str):
 
     def __new__(cls,
             filename,
-            copy = None,
-            rename = lambda x:x):
+            pattern = '*'):
+
+        if cfg.verbose:
+            v = 'v'
+        else:
+            v = ''
 
         # check free disk space
         cfg.check_free_space()
 
-        if copy == None:
+        #
+        # determine how to deal with input file
+        #
+        if (filename.endswith('.tgz')
+                or filename.endswith('.tar.gz')):
+            copy = 'tar xz{v}f "{input_file}" -C "{output_dir}"'
+            base = None
 
-            if filename.endswith('.gz'):
-                if cfg.verbose:
-                    copy = 'gunzip -vc "{}" > "{}"'
-                else:
-                    copy = 'gunzip -c "{}" > "{}"'
-                rename = lambda x: x[:-3]
+        elif filename.endswith('.gz'):
+            copy = 'gunzip -{v}c "{input_file}" > "{output_file}"'
+            base = basename(filename)[:-3]
 
-            elif filename.endswith('.Z'):
-                if cfg.verbose:
-                    copy = 'gunzip -vc "{}" > "{}"'
-                else:
-                    copy = 'gunzip -c "{}" > "{}"'
-                rename = lambda x: x[:-2]
+        elif filename.endswith('.Z'):
+            copy = 'gunzip -{v}c "{input_file}" > "{output_file}"'
+            base = basename(filename)[:-2]
 
-            elif filename.endswith('.bz2'):
-                if cfg.verbose:
-                    copy = 'bunzip2 -vc "{}" > "{}"'
-                else:
-                    copy = 'bunzip2 -c "{}" > "{}"'
-                rename = lambda x: x[:-4]
+        elif filename.endswith('.tar.bz2') or filename.endswith('.tbz2'):
+            copy = 'tar xj{v}f "{input_file}" -C "{output_dir}"'
+            base = None
 
-            elif cfg.verbose:
-                copy = 'cp -v "{}" "{}"'
-            else:
-                copy = 'cp "{}" "{}"'
+        elif filename.endswith('.tar'):
+            copy = 'tar x{v}f "{input_file}" -C "{output_dir}"'
+            base = None
 
+        elif filename.endswith('.bz2'):
+            copy = 'bunzip2 -{v}c "{input_file}" > "{output_file}"'
+            base = basename(filename)[:-3]
+
+        elif cfg.verbose:
+            copy = 'cp -v "{input_file}" "{output_file}"'
+            base = basename(filename)
+        else:
+            copy = 'cp "{input_file}" "{output_file}"'
+            base = basename(filename)
 
         # check that input file exists
         if not exists(filename):
             raise IOError('File "{}" does not exist'.format(filename))
 
         # determine temporary file name
-        base = rename(basename(filename))
         tmpd = tempfile.mkdtemp(dir=cfg.tmpdir, prefix='tmpfiles_')
-        tmpfile = join(tmpd, base)
 
-        assert not exists(tmpfile)
+        # format the copy command
+        if base is None:
+            tmpfile = None
+            cmd = copy.format(input_file=filename, output_dir=tmpd, v=v)
+        else:
+            tmpfile = join(tmpd, base)
+            cmd = copy.format(input_file=filename, output_file=tmpfile, v=v)
 
         # does the copy
-        cmd = copy.format(filename, tmpfile)
         if system(cmd):
             remove(tmpfile)
             raise IOError('Error executing "{}"'.format(cmd))
+
+        # determine the reference file name if not done already
+        if tmpfile is None:
+            tmpfile = list(findfiles(tmpd, pattern))[0]
 
         # create the object and sets its attributes
         self = str.__new__(cls, tmpfile)
@@ -238,11 +274,7 @@ class TmpInput(str):
             warnings.warn('Warning, {} has already been cleaned'.format(self))
             return
 
-        if not exists(self.__tmpfile):
-            raise IOError('file {} does not exist'.format(self.__tmpfile))
-
-        # remove temporary file
-        remove(self.__tmpfile)
+        # remove temporary directory
         rmtree(self.__tmpdir)
         self.__clean = True
         cfg.TMPLIST.remove(self)
@@ -253,7 +285,7 @@ class TmpInput(str):
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
-            print(('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self)))
+            print('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self))
 
     def __enter__(self):
         return self
@@ -342,10 +374,7 @@ class TmpOutput(str):
             warnings.warn('Warning, {} has already been cleaned'.format(self))
             return
 
-        # remove temporary file (may not exist)
-        if exists(self.__tmpfile):
-            remove(self.__tmpfile)
-
+        # remove whole temporary directory
         rmtree(self.__tmpdir)
         self.__clean = True
         cfg.TMPLIST.remove(self)
@@ -369,7 +398,7 @@ class TmpOutput(str):
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
-            print(('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self)))
+            print('Warning: clean has not been called for file "{}" - temporary file "{}" may remain.'.format(self.__filename, self))
 
     def __enter__(self):
         return self
@@ -426,7 +455,7 @@ class TmpDir(str):
     def __del__(self):
         # raise an exception if the object is deleted before clean is called
         if not self.__clean:
-            print(('Warning: clean has not been called for file "{}"'.format(self)))
+            print('Warning: clean has not been called for file "{}"'.format(self))
 
     def __enter__(self):
         return self
@@ -447,12 +476,14 @@ class TmpDir(str):
 def test_tmp():
     cfg.verbose=True
     cfg.freespace = 1
-
     f = Tmp('myfile.tmp')
     open(f, 'w').write('test')
     f.clean()
 
-    with Tmp() as f:
+def test_tmp2():
+    cfg.verbose=True
+    cfg.freespace = 1
+    with Tmp('myfile.tmp') as f:
         open(f, 'w').write('test')
 
 def test_input():
@@ -462,10 +493,8 @@ def test_input():
     # create temporary file
     tmp = Tmp('myfile.tmp')
     open(tmp, 'w').write('test')
-
     #... and use it as a temporary input
     TmpInput(tmp)
-
     # clean all
     Tmp.cleanAll()
 
@@ -477,7 +506,6 @@ def test_output():
     tmp = TmpOutput(f)
 
     open(tmp, 'w').write('test')
-
     tmp.move()
     Tmp.cleanAll()
 
@@ -490,9 +518,9 @@ def test_dir():
     open(filename, 'w').write('test')
     d.clean()
 
-
 if __name__ == '__main__':
     test_tmp()
+    test_tmp2()
     test_input()
     test_output()
     test_dir()
