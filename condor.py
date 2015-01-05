@@ -161,6 +161,7 @@ class Jobs(object):
         self.__totaltime = timedelta(0)
         self.__status = []
         self.__file_func = [filename, function_str]      # name of the file, and name of the function to execute
+        self.__stopping = False  # a flag to stop the server
 
     def filename(self):
         return self.__file_func[0]
@@ -188,6 +189,8 @@ class Jobs(object):
         return args
 
     def putResult(self, TUPLE):
+
+        if self.__stopping: return
 
         # the job becomes 'stored'
         job_id = TUPLE[0]
@@ -221,6 +224,17 @@ class Jobs(object):
             self.__totaltime += t
 
         return results
+
+    def stop(self):
+        self.__stopping = True
+
+        # wait until nothing is 'storing' or 'sending'
+        while True:
+            nsending = self.__status.count(self.status_sending)
+            nstoring = self.__status.count(self.status_sending)
+            if (nsending + nstoring == 0): break
+            print('{} elements are being sent, {} are being stored, waiting...'.format(nsending, nstoring))
+            sleep(2)
 
     def nstored(self):
         return self.__status.count(self.status_stored)
@@ -312,6 +326,7 @@ class Pool(object):
                 custom.set('')
                 pbar.finish()
         except KeyboardInterrupt:
+            jobs.stop()
             self.__server.terminate()
             print('interrupted!')
             raise
@@ -353,16 +368,21 @@ class Pool(object):
             pbar.start()
 
         t0 = datetime.now()
-        while not jobs.finished('imap'):
+        try:
+            while not jobs.finished('imap'):
 
-            if self.__progressbar:
-                custom.set('[%d running] ' % (jobs.nrunning()))
-                pbar.update(jobs.ndone())
+                if self.__progressbar:
+                    custom.set('[%d running] ' % (jobs.nrunning()))
+                    pbar.update(jobs.ndone())
 
-            if jobs.nstored() > 0:
-                yield jobs.getResult()
-            else:
-                sleep(2)
+                if jobs.nstored() > 0:
+                    yield jobs.getResult()
+                else:
+                    sleep(2)
+        except KeyboardInterrupt:
+            jobs.stop()
+            self.__server.terminate()
+            raise
 
         # display total time
         if self.__progressbar:
