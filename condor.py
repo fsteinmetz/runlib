@@ -155,13 +155,18 @@ class Jobs(object):
     status_stored  = 4     # stored   - job has been stored in results queue
     status_fetched  = 5    # fetched  - job has been dequeued
 
-    def __init__(self, filename, function_str):
+    def __init__(self, filename, function_str, nqueue=-1):
         self.inputs = []
         self.outputs = Queue()  # (id, value) pairs
         self.__totaltime = timedelta(0)
         self.__status = []
         self.__file_func = [filename, function_str]      # name of the file, and name of the function to execute
         self.__stopping = False  # a flag to stop the server
+        self.__nqueue = nqueue    # maximum number of elements in output queue
+                                  # (avoid memory overflow in some cases)
+
+    def nqueue(self):
+        return self.__nqueue
 
     def filename(self):
         return self.__file_func[0]
@@ -210,6 +215,7 @@ class Jobs(object):
 
         self.__totaltime += t
         return v # return one value
+
 
     def getResults_sorted(self):
 
@@ -296,9 +302,10 @@ class Pool(object):
     This is a generic base class
     '''
 
-    def __init__(self, progressbar=True):
+    def __init__(self, progressbar=True, nqueue=-1):
         self.__progressbar = progressbar
         self.__server = None
+        self.__nqueue = nqueue
 
     def map(self, function, *iterables):
 
@@ -306,6 +313,9 @@ class Pool(object):
             return []
 
         jobs = self._map_async(function, *iterables)
+
+        if jobs.nqueue() > 0:
+            raise Exception('map is incompatible with the use of nqueue = {}'.format(jobs.nqueue()))
 
         #
         # wait for the jobs to finish
@@ -420,7 +430,7 @@ class Pool(object):
         # start the pyro daemon in a thread
         #
         uri_q = Queue()
-        self.__server = Process(target=pyro_server, args=(Jobs(filename, function_str), uri_q))
+        self.__server = Process(target=pyro_server, args=(Jobs(filename, function_str, self.__nqueue), uri_q))
         self.__server.start()
         sleep(1)
         uri = uri_q.get()
@@ -457,9 +467,10 @@ class CondorPool(Pool):
     def __init__(self, log='/tmp/condor-log-{}'.format(getpass.getuser()),
             loadavg = 2.,
             memory = 2000,
-            progressbar = True):
+            progressbar = True,
+            nqueue = -1):
 
-        Pool.__init__(self, progressbar=progressbar)
+        Pool.__init__(self, progressbar=progressbar, nqueue=nqueue)
 
         self.__log = log
         self.__loadavg = loadavg
@@ -537,9 +548,10 @@ class QsubPool(Pool):
     def __init__(self, log='/tmp/qsub-log-{}'.format(getpass.getuser()),
                  loadavg = 0.8,
                  memory = 2000,
-                 progressbar = True):
+                 progressbar = True,
+                 nqueue = -1):
 
-        Pool.__init__(self, progressbar=progressbar)
+        Pool.__init__(self, progressbar=progressbar, nqueue=nqueue)
 
         self.__log = log
         self.__loadavg = loadavg
@@ -642,6 +654,17 @@ def worker(argv):
 
     mod = imp.load_module(modname, *module)
     f = getattr(mod, function)
+
+    # the output queue might get huge in some cases (imap_unordered)
+    # wait until it has less than N values
+    while True:
+        if jobs.nqueue() <= 0: break
+        if jobs.nstored() < jobs.nqueue():
+            break
+        sys.stderr.write('condor.py: results queue has {} items, waiting until it has less than {}...'.format(
+            jobs.nstored(), jobs.nqueue()))
+        sys.stderr.flush()
+        sleep(2)
 
     try:
         result = f(*args)
