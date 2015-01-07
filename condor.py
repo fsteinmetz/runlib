@@ -251,6 +251,9 @@ class Jobs(object):
     def nrunning(self):
         return self.__status.count(self.status_running)
 
+    def count(self, status):
+        return self.__status.count(status)
+
     def ndone(self):
         ''' number of finished jobs (stored or fetched) '''
         return self.nstored() + self.nfetched()
@@ -615,6 +618,44 @@ sh -c '{python_exec} -m {worker} {pyro_uri} $PBS_ARRAYID'
         qsub_script.clean()
 
 
+def monitor(pyro_uri):
+
+    print('Monitoring pyro server...')
+
+    jobs = Pyro4.Proxy(pyro_uri)
+    pbar = None
+
+    while True:
+
+        if pbar is None:
+            custom = Custom()
+            pbar = ProgressBar(widgets=[custom,Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
+                    maxval=jobs.total())
+            pbar.start()
+
+        status = []
+        for (stat, desc) in [
+                (Jobs.status_waiting, 'waiting'),
+                (Jobs.status_sending, 'sending'),
+                (Jobs.status_running, 'running'),
+                (Jobs.status_storing, 'storing'),
+                (Jobs.status_storing, 'storing'),
+                (Jobs.status_stored, 'stored'),
+                (Jobs.status_fetched, 'done'),
+                ]:
+            try:
+                count = jobs.count(stat)
+            except Pyro4.errors.ConnectionClosedError:
+                print('Server has been terminated.   ')
+                exit()
+
+            if count > 0:
+                status.append('{} {}'.format(count, desc))
+
+        custom.set('[{}] '.format('/'.join(status)))
+        pbar.update(jobs.ndone())
+        sleep(2)
+
 
 def worker(argv):
 
@@ -677,6 +718,9 @@ def worker(argv):
 
 if __name__ == '__main__':
 
-    worker(argv)
+    if len(argv) == 3:
+        worker(argv)
+    elif len(argv) == 2:
+        monitor(argv[1])
 
 
