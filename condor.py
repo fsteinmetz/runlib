@@ -89,6 +89,7 @@ from bisect import bisect
 from datetime import datetime, timedelta
 import Pyro4
 import warnings
+from collections import Counter as CCounter
 warnings.filterwarnings('ignore', category=UserWarning, module='Pyro4') # ignore warning "HMAC_KEY not set, protocol data may not be secure"
 
 Pyro4.config.SERVERTYPE = "multiplex"
@@ -109,7 +110,6 @@ except:
     # http://code.google.com/p/python-progressbar/
     # if the module is not available
     #
-    from datetime import datetime
     class ProgressBar(object):
         def __init__(self, *args, **kwargs):
             self.__total = kwargs['maxval']
@@ -248,15 +248,32 @@ class Jobs(object):
     def nfetched(self):
         return self.__status.count(self.status_fetched)
 
-    def nrunning(self):
-        return self.__status.count(self.status_running)
+    def counter(self):
+        return CCounter(self.__status)
 
-    def count(self, status):
-        return self.__status.count(status)
+    def status(self):
+        '''
+        returns a string describing the status,
+        and the number of jobs done (stored or fetched)
+        '''
 
-    def ndone(self):
-        ''' number of finished jobs (stored or fetched) '''
-        return self.nstored() + self.nfetched()
+        count = self.counter()
+        S = []
+
+        for (stat, desc) in [
+                (self.status_waiting, 'waiting'),
+                (self.status_sending, 'sending'),
+                (self.status_running, 'running'),
+                (self.status_storing, 'storing'),
+                (self.status_storing, 'storing'),
+                (self.status_stored, 'stored'),
+                (self.status_fetched, 'done'),
+                ]:
+
+            if count[stat] > 0:
+                S.append('{} {}'.format(count[stat], desc))
+
+        return '[{}] '.format('|'.join(S)), count[self.status_stored] + count[self.status_fetched]
 
     def finished(self, mode):
         '''
@@ -331,9 +348,10 @@ class Pool(object):
                         maxval=jobs.total())
                 pbar.start()
             while not jobs.finished('map'):
+                status, ndone = jobs.status()
                 if self.__progressbar:
-                    custom.set('[%d running] ' % (jobs.nrunning()))
-                    pbar.update(jobs.ndone())
+                    custom.set(status)
+                    pbar.update(ndone)
                 sleep(2)
             if self.__progressbar:
                 custom.set('')
@@ -384,9 +402,10 @@ class Pool(object):
         try:
             while not jobs.finished('imap'):
 
+                status, ndone = jobs.status()
                 if self.__progressbar:
-                    custom.set('[%d running] ' % (jobs.nrunning()))
-                    pbar.update(jobs.ndone())
+                    custom.set(status)
+                    pbar.update(ndone)
 
                 if jobs.nstored() > 0:
                     yield jobs.getResult()
@@ -633,27 +652,14 @@ def monitor(pyro_uri):
                     maxval=jobs.total())
             pbar.start()
 
-        status = []
-        for (stat, desc) in [
-                (Jobs.status_waiting, 'waiting'),
-                (Jobs.status_sending, 'sending'),
-                (Jobs.status_running, 'running'),
-                (Jobs.status_storing, 'storing'),
-                (Jobs.status_storing, 'storing'),
-                (Jobs.status_stored, 'stored'),
-                (Jobs.status_fetched, 'done'),
-                ]:
-            try:
-                count = jobs.count(stat)
-            except Pyro4.errors.ConnectionClosedError:
-                print('Server has been terminated.   ')
-                exit()
+        try:
+            status, ndone = jobs.status()
+        except:
+            print('Server has been terminated.   ')
+            exit()
 
-            if count > 0:
-                status.append('{} {}'.format(count, desc))
-
-        custom.set('[{}] '.format('/'.join(status)))
-        pbar.update(jobs.ndone())
+        custom.set(status)
+        pbar.update(ndone)
         sleep(2)
 
 
