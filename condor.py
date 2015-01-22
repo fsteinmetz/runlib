@@ -140,7 +140,12 @@ class Custom(Widget):
     def set(self, text):
         self.__text = text
 
-
+def chunks(l, n):
+    '''
+    Yield successive n-sized chunks from l.
+    '''
+    for i in xrange(0, len(l), n):
+        yield l[i:i+n]
 
 class Jobs(object):
     '''
@@ -490,6 +495,7 @@ class CondorPool(Pool):
             loadavg = 2.,
             memory = 2000,
             progressbar = True,
+            groupsize = 1,
             nqueue = -1):
 
         Pool.__init__(self, progressbar=progressbar, nqueue=nqueue)
@@ -497,6 +503,8 @@ class CondorPool(Pool):
         self.__log = log
         self.__loadavg = loadavg
         self.__memory = memory
+        assert isinstance(groupsize, int) and (groupsize > 0)
+        self.__groupsize = groupsize
 
     def submit(self, jobs, uri):
 
@@ -523,7 +531,7 @@ request_cpus = 1
 '''
 
         condor_job = '''
-arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} {job_id}'"
+arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} {job_ids}'"
 queue
 '''
         with Tmp('condor.run') as condor_script:
@@ -539,12 +547,13 @@ queue
                 dirlog = self.__log,
                 memory = self.__memory,
                 loadavg = self.__loadavg))
-            for i in range(jobs.total()):
+            for grp in chunks(range(jobs.total()), self.__groupsize):
+                job_ids = ' '.join(map(str, grp))  # a string containing all the jobs in this group
                 fp.write(condor_job.format(
                     worker=__name__,
                     python_exec = sys.executable,
                     pyro_uri=uri,
-                    job_id=i,
+                    job_ids=job_ids,
                     ))
             fp.close()
 
@@ -666,16 +675,7 @@ def monitor(pyro_uri):
 def worker(argv):
 
     pyro_uri = argv[1]
-    job_id = int(argv[2])
-
-    t0 = datetime.now()
-
-    # write a small header at the start of stdout and stderr logs
-    msg = '### {} log on {} ###\n'
-    sys.stdout.write(msg.format('Output', socket.gethostname()))
-    sys.stdout.flush()
-    sys.stderr.write(msg.format('Error', socket.gethostname()))
-    sys.stderr.flush()
+    job_ids = map(int, argv[2:])  # list of job ids to process
 
     #
     # connect to the daemon
@@ -683,7 +683,6 @@ def worker(argv):
     jobs = Pyro4.Proxy(pyro_uri)
     filename = jobs.filename()
     function = jobs.function_str()
-    args = jobs.getJob(job_id)
 
     #
     # for safety,"cd" to the directory containing the target function
@@ -702,31 +701,45 @@ def worker(argv):
     mod = imp.load_module(modname, *module)
     f = getattr(mod, function)
 
-    # the output queue might get huge in some cases (imap_unordered)
-    # wait until it has less than N values
-    while True:
-        if jobs.nqueue() <= 0: break
-        if jobs.nstored() < jobs.nqueue():
-            break
-        sys.stderr.write('condor.py: results queue has {} items, waiting until it has less than {}...'.format(
-            jobs.nstored(), jobs.nqueue()))
+    # loop over the job(s)
+    for job_id in job_ids:
+
+        # write a small header at the start of stdout and stderr logs
+        msg = '### {} log on {} (job {}) ###\n'
+        sys.stdout.write(msg.format('Output', socket.gethostname(), job_id))
+        sys.stdout.flush()
+        sys.stderr.write(msg.format('Error', socket.gethostname(), job_id))
         sys.stderr.flush()
-        sleep(2)
 
-    try:
-        result = f(*args)
-    except:
-        jobs.putResult((job_id, None, datetime.now() - t0))
-        raise
+        t0 = datetime.now()
 
-    jobs.putResult((job_id, result, datetime.now() - t0))
+        # fetch the arguments
+        args = jobs.getJob(job_id)
+
+        # wait until the output queue has less than N values
+        while True:
+            if jobs.nqueue() <= 0: break
+            if jobs.nstored() < jobs.nqueue():
+                break
+            # sys.stderr.write('condor.py: results queue has {} items, waiting until it has less than {}...'.format(
+            #     jobs.nstored(), jobs.nqueue()))
+            # sys.stderr.flush()
+            sleep(2)
+
+        try:
+            result = f(*args)
+        except:
+            jobs.putResult((job_id, None, datetime.now() - t0))
+            raise
+
+        jobs.putResult((job_id, result, datetime.now() - t0))
 
 
 if __name__ == '__main__':
 
-    if len(argv) == 3:
-        worker(argv)
-    elif len(argv) == 2:
+    if len(argv) == 2:
         monitor(argv[1])
+    else:
+        worker(argv)
 
 
