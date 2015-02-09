@@ -55,7 +55,7 @@ def test5():
     print('test 5: custom objects')
     objects = map(Foo, range(10))
 
-    pool = Pool(add_globals=['Foo'])
+    pool = Pool(custom=['Foo'])
     print pool.map(fobj, objects)
 
 if __name__ == '__main__':

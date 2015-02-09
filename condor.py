@@ -160,7 +160,7 @@ class Jobs(object):
     status_stored  = 4     # stored   - job has been stored in results queue
     status_fetched  = 5    # fetched  - job has been dequeued
 
-    def __init__(self, filename, function_str, add_globals=[], nqueue=-1):
+    def __init__(self, filename, function_str, custom=[], nqueue=-1):
         self.inputs = []
         self.outputs = Queue()  # (id, value) pairs
         self.__totaltime = timedelta(0)
@@ -168,7 +168,7 @@ class Jobs(object):
         self.__filename = filename            # name of the module containing the function to execute
                                               # (absolute file name)
         self.__function_str = function_str    # name of the function to execute
-        self.__add_globals = add_globals      # additional attributes of module necessary
+        self.__custom = custom                # additional attributes of module necessary
                                               # to pass the arguments
                                               # (for example, custom classes)
         self.__stopping = False  # a flag to stop the server
@@ -184,8 +184,8 @@ class Jobs(object):
     def function_str(self):
         return self.__function_str
 
-    def add_globals(self):
-        return self.__add_globals
+    def custom(self):
+        return self.__custom
 
     def putJob(self, job):
 
@@ -338,15 +338,15 @@ class Pool(object):
         - progressbar (bool, default True)
         - nqueue: maximum number of results in queue. Used with imap_unordered
           to avoid potential overflow of the results queue
-        - add_globals: list of attributes necessary to pass the arguments
-          (custom classes)
+        - custom: list of attributes necessary to pass the arguments
+                  (custom classes)
     '''
 
-    def __init__(self, progressbar=True, nqueue=-1, add_globals=[]):
+    def __init__(self, progressbar=True, nqueue=-1, custom=[]):
         self.__progressbar = progressbar
         self.__server = None
         self.__nqueue = nqueue
-        self.__add_globals = add_globals
+        self.__custom = custom
 
     def map(self, function, *iterables):
 
@@ -473,7 +473,8 @@ class Pool(object):
         # start the pyro daemon in a thread
         #
         uri_q = Queue()
-        self.__server = Process(target=pyro_server, args=(Jobs(filename, function_str, nqueue=self.__nqueue, add_globals=self.__add_globals), uri_q))
+        self.__server = Process(target=pyro_server, args=(Jobs(filename, function_str,
+            nqueue=self.__nqueue, custom=self.__custom), uri_q))
         self.__server.start()
         sleep(1)
         uri = uri_q.get()
@@ -710,7 +711,7 @@ def worker(argv):
     jobs = Pyro4.Proxy(pyro_uri)
     filename = jobs.filename()
     function_str = jobs.function_str()
-    add_globals = jobs.add_globals()
+    custom = jobs.custom()
 
     #
     # for safety,"cd" to the directory containing the target function
@@ -730,7 +731,7 @@ def worker(argv):
     f = getattr(mod, function_str)
 
     # load the additional attributes from module mod
-    for a in add_globals:
+    for a in custom:
         globals().update({a: getattr(mod, a)})
 
     # loop over the job(s)
