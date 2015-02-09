@@ -72,22 +72,22 @@ HOW IT WORKS:
 
 
 from __future__ import print_function
+import importlib
 import os
-import imp
 import sys
 import socket
 import getpass
 from multiprocessing import Queue
 from time import sleep
-from os.path import dirname, basename
 from multiprocessing import Process
-from os import system
+from os import system, makedirs
 from tmpfiles import Tmp
 from sys import argv
 import inspect
 from bisect import bisect
 from datetime import datetime, timedelta
 import Pyro4
+import textwrap
 import warnings
 from collections import Counter as CCounter
 warnings.filterwarnings('ignore', category=UserWarning, module='Pyro4') # ignore warning "HMAC_KEY not set, protocol data may not be secure"
@@ -160,12 +160,17 @@ class Jobs(object):
     status_stored  = 4     # stored   - job has been stored in results queue
     status_fetched  = 5    # fetched  - job has been dequeued
 
-    def __init__(self, filename, function_str, nqueue=-1):
+    def __init__(self, filename, function_str, add_globals=[], nqueue=-1):
         self.inputs = []
         self.outputs = Queue()  # (id, value) pairs
         self.__totaltime = timedelta(0)
         self.__status = []
-        self.__file_func = [filename, function_str]      # name of the file, and name of the function to execute
+        self.__filename = filename            # name of the module containing the function to execute
+                                              # (absolute file name)
+        self.__function_str = function_str    # name of the function to execute
+        self.__add_globals = add_globals      # additional attributes of module necessary
+                                              # to pass the arguments
+                                              # (for example, custom classes)
         self.__stopping = False  # a flag to stop the server
         self.__nqueue = nqueue    # maximum number of elements in output queue
                                   # (avoid memory overflow in some cases)
@@ -174,10 +179,13 @@ class Jobs(object):
         return self.__nqueue
 
     def filename(self):
-        return self.__file_func[0]
+        return self.__filename
 
     def function_str(self):
-        return self.__file_func[1]
+        return self.__function_str
+
+    def add_globals(self):
+        return self.__add_globals
 
     def putJob(self, job):
 
@@ -324,13 +332,21 @@ def pyro_server(jobs, uri_q):
 
 class Pool(object):
     '''
-    This is a generic base class
+    This is a generic base class for a pool of jobs
+
+    Arguments:
+        - progressbar (bool, default True)
+        - nqueue: maximum number of results in queue. Used with imap_unordered
+          to avoid potential overflow of the results queue
+        - add_globals: list of attributes necessary to pass the arguments
+          (custom classes)
     '''
 
-    def __init__(self, progressbar=True, nqueue=-1):
+    def __init__(self, progressbar=True, nqueue=-1, add_globals=[]):
         self.__progressbar = progressbar
         self.__server = None
         self.__nqueue = nqueue
+        self.__add_globals = add_globals
 
     def map(self, function, *iterables):
 
@@ -457,7 +473,7 @@ class Pool(object):
         # start the pyro daemon in a thread
         #
         uri_q = Queue()
-        self.__server = Process(target=pyro_server, args=(Jobs(filename, function_str, self.__nqueue), uri_q))
+        self.__server = Process(target=pyro_server, args=(Jobs(filename, function_str, nqueue=self.__nqueue, add_globals=self.__add_globals), uri_q))
         self.__server.start()
         sleep(1)
         uri = uri_q.get()
@@ -489,16 +505,22 @@ class Pool(object):
 class CondorPool(Pool):
     '''
     This is a pool using HTCondor system
+
+    Arguments:
+        - log: location for storing the log files
+        - loadavg: average load requirement passed to Qsub
+        - memory requirement passed to Qsub
+        - groupsize: 
+        - **kwargs: other keyword arguments passed to Pool
     '''
 
     def __init__(self, log='/tmp/condor-log-{}'.format(getpass.getuser()),
             loadavg = 2.,
             memory = 2000,
-            progressbar = True,
             groupsize = 1,
-            nqueue = -1):
+            **kwargs):
 
-        Pool.__init__(self, progressbar=progressbar, nqueue=nqueue)
+        Pool.__init__(self, **kwargs)
 
         self.__log = log
         self.__loadavg = loadavg
@@ -515,25 +537,25 @@ class CondorPool(Pool):
         # create log directory if necessary
         #
         if not os.path.exists(self.__log):
-            os.mkdir(self.__log)
+            makedirs(self.__log)
 
-        condor_header = '''
-universe = vanilla
-notification = Error
-executable = /usr/bin/env
-log = {dirlog}/$(Cluster).log
-output = {dirlog}/$(Cluster).$(Process).out
-error = {dirlog}/$(Cluster).$(Process).error
-environment = "LD_LIBRARY_PATH={ld_library_path} PYTHONPATH={pythonpath} PATH={path}"
-requirements = (OpSys == "LINUX") && (LoadAvg < {loadavg})
-request_memory = {memory}
-request_cpus = 1
-'''
+        condor_header = textwrap.dedent('''
+        universe = vanilla
+        notification = Error
+        executable = /usr/bin/env
+        log = {dirlog}/$(Cluster).log
+        output = {dirlog}/$(Cluster).$(Process).out
+        error = {dirlog}/$(Cluster).$(Process).error
+        environment = "LD_LIBRARY_PATH={ld_library_path} PYTHONPATH={pythonpath} PATH={path}"
+        requirements = (OpSys == "LINUX") && (LoadAvg < {loadavg})
+        request_memory = {memory}
+        request_cpus = 1
+        ''')
 
-        condor_job = '''
-arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} {job_ids}'"
-queue
-'''
+        condor_job = textwrap.dedent('''
+        arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} {job_ids}'"
+        queue
+        ''')
         with Tmp('condor.run') as condor_script:
 
             #
@@ -574,15 +596,20 @@ queue
 class QsubPool(Pool):
     '''
     This is a pool using QSUB (SGE) system
+
+    Arguments:
+        - log: location for storing the log files
+        - loadavg: average load requirement passed to Qsub
+        - memory requirement passed to Qsub
+        - **kwargs: other keyword arguments passed to Pool
     '''
 
     def __init__(self, log='/tmp/qsub-log-{}'.format(getpass.getuser()),
-                 loadavg = 0.8,
+                 loadavg = 2.,
                  memory = 2000,
-                 progressbar = True,
-                 nqueue = -1):
+                 **kwargs):
 
-        Pool.__init__(self, progressbar=progressbar, nqueue=nqueue)
+        Pool.__init__(self, **kwargs)
 
         self.__log = log
         self.__loadavg = loadavg
@@ -599,19 +626,19 @@ class QsubPool(Pool):
         if not os.path.exists(self.__log):
             os.mkdir(self.__log)
 
-        qsub_header = '''
-#PBS -S /bin/bash
-#PBS -o {dirlog}/out.$PBS_JOBID
-#PBS -e {dirlog}/err.$PBS_JOBID
-#PBS -t 0-{njobs}
-export LD_LIBRARY_PATH={ld_library_path} 
-export PYTHONPATH={pythonpath} 
-export PATH={path}
-'''
+        qsub_header = textwrap.dedent('''
+        #PBS -S /bin/bash
+        #PBS -o {dirlog}/out.$PBS_JOBID
+        #PBS -e {dirlog}/err.$PBS_JOBID
+        #PBS -t 0-{njobs}
+        export LD_LIBRARY_PATH={ld_library_path} 
+        export PYTHONPATH={pythonpath} 
+        export PATH={path}
+        ''')
 
-        qsub_job = '''
-sh -c '{python_exec} -m {worker} {pyro_uri} $PBS_ARRAYID'
-'''
+        qsub_job = textwrap.dedent('''
+        sh -c '{python_exec} -m {worker} {pyro_uri} $PBS_ARRAYID'
+        ''')
 
         #
         # create the QSUB script
@@ -682,7 +709,8 @@ def worker(argv):
     #
     jobs = Pyro4.Proxy(pyro_uri)
     filename = jobs.filename()
-    function = jobs.function_str()
+    function_str = jobs.function_str()
+    add_globals = jobs.add_globals()
 
     #
     # for safety,"cd" to the directory containing the target function
@@ -690,16 +718,20 @@ def worker(argv):
     os.chdir(os.path.dirname(filename))
 
     #
-    # load the target function
+    # import the target module
     #
-    modname = basename(filename)
+    modname = os.path.basename(filename)
     if modname.endswith('.py'):
         modname = modname[:-3]
 
-    module = imp.find_module(modname, [dirname(filename)])
+    mod = importlib.import_module(modname)
 
-    mod = imp.load_module(modname, *module)
-    f = getattr(mod, function)
+    # load the function to execute
+    f = getattr(mod, function_str)
+
+    # load the additional attributes from module mod
+    for a in add_globals:
+        globals().update({a: getattr(mod, a)})
 
     # loop over the job(s)
     for job_id in job_ids:
@@ -714,7 +746,12 @@ def worker(argv):
         t0 = datetime.now()
 
         # fetch the arguments
-        args = jobs.getJob(job_id)
+        try:
+            args = jobs.getJob(job_id)
+        except AttributeError:
+            jobs.putResult((job_id, None, datetime.now() - t0))
+            raise
+
 
         # wait until the output queue has less than N values
         while True:
