@@ -511,7 +511,7 @@ class CondorPool(Pool):
         - log: location for storing the log files
         - loadavg: average load requirement passed to Qsub
         - memory requirement passed to Qsub
-        - groupsize: 
+        - groupsize: launch jobs by groups of size groupsize
         - **kwargs: other keyword arguments passed to Pool
     '''
 
