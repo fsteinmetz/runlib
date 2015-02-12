@@ -382,8 +382,15 @@ class TmpOutput(str):
         if not exists(self.__tmpfile):
             raise IOError('file {} does not exist'.format(self.__tmpfile))
 
-        # output file: copy to destination
-        cmd = self.__cp.format(self.__tmpfile, self.__filename)
+        # output file: copy to (temporary) destination
+        # in target folder, with extension '.tmp'
+        tmpmovefile = self.__filename + '.tmp'
+        cmd = self.__cp.format(self.__tmpfile, tmpmovefile)
+        if system(cmd):
+            raise IOError('Error executing "{}"'.format(cmd))
+
+        # output file: rename to final file
+        cmd = 'mv {} {}'.format(tmpmovefile, self.__filename)
         if system(cmd):
             raise IOError('Error executing "{}"'.format(cmd))
 
