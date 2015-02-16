@@ -158,7 +158,9 @@ class Jobs(object):
     status_running = 2     # running  - job is running
     status_storing = 3     # storing  - job is being stored in results queue
     status_stored  = 4     # stored   - job has been stored in results queue
-    status_fetched  = 5    # fetched  - job has been dequeued
+    status_done    = 5     # done     - job has been dequeued
+
+    max_counter = 20
 
     def __init__(self, filename, function_str, custom=[], nqueue=-1):
         self.inputs = []
@@ -174,6 +176,12 @@ class Jobs(object):
         self.__stopping = False  # a flag to stop the server
         self.__nqueue = nqueue    # maximum number of elements in output queue
                                   # (avoid memory overflow in some cases)
+
+        self.__results = []   # initialize the list of resuts (filled by map())
+        self.__job_ids = []   # job ids to store the results by job id
+
+        self.__counter = {}   # number of occurence of each job result (string or int only)
+        self.__endtimes = {}  # last occurence of each result
 
     def nqueue(self):
         return self.__nqueue
@@ -220,29 +228,39 @@ class Jobs(object):
         self.__status[job_id] = self.status_stored
 
     def getResult(self):
+        '''
+        get one result, returns (job_id, result, time)
+        '''
 
         (job_id, v, t) = self.outputs.get()
 
         # the job becomes 'fetched'
-        self.__status[job_id] = self.status_fetched
+        self.__status[job_id] = self.status_done
 
         self.__totaltime += t
-        return v # return one value
 
+        # count the occurences of each result
+        # (only for int and string, with a limit of max_counter)
+        # for other classes, count only the classes
+        if isinstance(v, int) or isinstance(v, str):
+            if len(self.__counter) < self.max_counter:
+                if v in self.__counter:
+                    self.__counter[v] += 1
+                else:
+                    self.__counter[v] = 1
+                self.__endtimes[v] = datetime.now()
+        else:
+            vclass = v.__class__
+            if vclass in self.__counter:
+                self.__counter[vclass] += 1
+            else:
+                self.__counter[vclass] = 1
+            self.__endtimes[vclass] = datetime.now()
 
-    def getResults_sorted(self):
+        return (job_id, v, t)
 
-        results = []
-        keys = []
-        for _ in range(self.nstored()):
-            (job_id, v, t) = self.outputs.get()
-            self.__status[job_id] = self.status_fetched
-            index = bisect(keys, job_id)
-            keys.insert(index, job_id)
-            results.insert(index, v)
-            self.__totaltime += t
-
-        return results
+    def resultCounter(self):
+        return self.__counter, self.__endtimes
 
     def stop(self):
         self.__stopping = True
@@ -259,7 +277,7 @@ class Jobs(object):
         return self.__status.count(self.status_stored)
 
     def nfetched(self):
-        return self.__status.count(self.status_fetched)
+        return self.__status.count(self.status_done)
 
     def counter(self):
         return CCounter(self.__status)
@@ -280,29 +298,38 @@ class Jobs(object):
                 (self.status_storing, 'storing'),
                 (self.status_storing, 'storing'),
                 (self.status_stored, 'stored'),
-                (self.status_fetched, 'done'),
+                (self.status_done, 'done'),
                 ]:
 
             if count[stat] > 0:
                 S.append('{} {}'.format(count[stat], desc))
 
-        return '[{}] '.format('|'.join(S)), count[self.status_stored] + count[self.status_fetched]
+        return '[{}] '.format('|'.join(S)), count[self.status_stored] + count[self.status_done]
 
     def finished(self, mode):
         '''
-        returns whether all the jobs are finished
-        'map' mode:  all jobs must be 'stored'
-                     (they will be fetched afterwards)
-        'imap' mode: all jobs must be 'fetched'
+        returns whether all the jobs are done
+        'map' mode:  first dequeue all stored results
+        'imap' mode: no need to dequeue the jobs, they are
+                     dequeued in imap_unordered
         '''
         if mode == 'map':
-            return self.nstored() == self.total()
 
-        elif mode == 'imap':
-            # imap: all jobs must be 'fetched'
-            return self.nfetched() == self.total()
-        else:
-            raise Exception('jobs.finished: mode should be either "map" or "imap"')
+            # dequeue all stored jobs
+            for _ in range(self.nstored()):
+                (job_id, v, _) = self.getResult()
+                self.__status[job_id] = self.status_done
+                index = bisect(self.__job_ids, job_id)
+                self.__job_ids.insert(index, job_id)
+                self.__results.insert(index, v)
+
+        return self.nfetched() == self.total()
+
+    def results(self):
+        return self.__results
+
+    def endtimes(self):
+        return self.__endtimes
 
     def total(self):
         ''' total number of jobs '''
@@ -387,7 +414,7 @@ class Pool(object):
         #
         # store the results
         #
-        results = jobs.getResults_sorted()
+        results = jobs.results()
 
         # display total time
         if self.__progressbar:
@@ -429,7 +456,7 @@ class Pool(object):
                     pbar.update(ndone)
 
                 if jobs.nstored() > 0:
-                    yield jobs.getResult()
+                    yield jobs.getResult()[1]
                 else:
                     sleep(2)
         except KeyboardInterrupt:
@@ -676,28 +703,74 @@ class QsubPool(Pool):
 
 def monitor(pyro_uri):
 
-    print('Monitoring pyro server...')
+    import curses
+    import operator
 
-    jobs = Pyro4.Proxy(pyro_uri)
-    pbar = None
+    try:
+        jobs = Pyro4.Proxy(pyro_uri)
+    except:
+        print('Cannot connect to {}'.format(pyro_uri))
+        exit(1)
 
+    # initialize curses
+    stdscr = curses.initscr()
+    curses.noecho()
+    curses.cbreak()
+    stdscr.keypad(1)
+    stdscr.nodelay(1)
+
+    # display header
+    line = 0
+    stdscr.addstr(line, 0, 'Monitoring pyro server {}...'.format(pyro_uri)) ; line += 1
+    stdscr.addstr(line, 0, 'Press q to quit') ; line += 1
+    line += 1
+    stdscr.addstr(line, 0, 'Last results obtained:') ; line += 1
+
+    cnt = 0
     while True:
 
-        if pbar is None:
-            custom = Custom()
-            pbar = ProgressBar(widgets=[custom,Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
-                    maxval=jobs.total())
-            pbar.start()
-
+        c = stdscr.getch()
+        if c == ord('q'):
+            break
         try:
-            status, ndone = jobs.status()
-        except:
-            print('Server has been terminated.   ')
-            exit()
+            sleep(0.25)
+        except KeyboardInterrupt:
+            break
 
-        custom.set(status)
-        pbar.update(ndone)
-        sleep(2)
+        if cnt == 0:
+
+            try:
+                count, endtimes = jobs.resultCounter()
+            except:
+                print('Server has been terminated.')
+                break
+
+            # sort results by increasing endtime
+            endtimes_srt = sorted(endtimes.items(), key=operator.itemgetter(1))
+
+            if len(count) == 0:
+                stdscr.addstr(line, 0, '(None)')
+
+            for i in xrange(len(count)):
+                k, t = endtimes_srt[i]
+                c = count[k]
+                message = ' {} ({} {}, latest {} ago)'.format(k, c,
+                        {True: 'time', False: 'times'}[c == 1],
+                        timedelta(seconds=int((datetime.now() - t).total_seconds())))
+                stdscr.move(line+i, 0)
+                stdscr.clrtoeol()
+                stdscr.addstr(line+i, 0, message)
+
+
+        cnt += 1
+        if cnt > 10: cnt = 0
+
+
+    # uninitialize curses
+    curses.nocbreak()
+    stdscr.keypad(0)
+    curses.echo()
+    curses.endwin()
 
 
 def worker(argv):
