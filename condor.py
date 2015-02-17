@@ -822,8 +822,8 @@ def worker(argv):
         # fetch the arguments
         try:
             args = jobs.getJob(job_id)
-        except AttributeError:
-            jobs.putResult((job_id, None, datetime.now() - t0))
+        except AttributeError as ex:
+            jobs.putResult((job_id, ex, datetime.now() - t0))
             raise
 
 
@@ -839,8 +839,8 @@ def worker(argv):
 
         try:
             result = f(*args)
-        except:
-            jobs.putResult((job_id, None, datetime.now() - t0))
+        except Exception as ex:
+            jobs.putResult((job_id, ex, datetime.now() - t0))
             raise
 
         jobs.putResult((job_id, result, datetime.now() - t0))
