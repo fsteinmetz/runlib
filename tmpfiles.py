@@ -9,6 +9,7 @@ A module to easily manage temporary files
     1) Temporary input files (TmpInput)
        These files are copied locally, used as an input for the processing,
        then removed
+       If gzip or bzip compressed, the input file is decompressed
 
     2) Temporary output files (TmpOutput)
        These temporary files are created, and copied upon success to their
@@ -20,8 +21,10 @@ A module to easily manage temporary files
     These classes contain the following features:
         - Ensure temporary files unicity by using unique temporary directories
         - Check free disk space on start
-        - Automatic cleanup of all temporary files via static method
-          Tmp.cleanAll() (call this at the end of your script)
+        - Automatic cleanup of all temporary files
+          => The use of a "with ... as ..." block is advised
+
+    4) Cfg class: stores module-wise configuration.
 
 '''
 
@@ -176,12 +179,17 @@ class TmpInput(str):
        * verbose
 
     Example:
+        with TmpInput('/path/to/source.data') as f:
+            # the source file is copied to a unique temporary directory
+            # and f contains the file name of the temporary file
+            # <use f as an input to a processor>
+        
+    Alternate usage:
         f = TmpInput('/path/to/source.data')
-        # the source file is copied to a unique temporary directory
-        # and f contains the file name of the temporary file
-        # <use f as an input to a processor>
+        # use f
         f.clean() # or Tmp.cleanAll()
 
+    Note: tar files are also supported.
     '''
 
     # NOTE: subclassing an immutable object requires to use the __new__ method
@@ -309,6 +317,12 @@ class TmpOutput(str):
        * overwrite: whether the target should be overwritten
 
     Example:
+        with TmpOutput('/path/to/target.data') as f:
+            # create f
+            if <f created successfully>:
+                f.move() # move f to target
+        
+    Alternate method:
         f = TmpOutput('/path/to/target.data')
         # at this point, f is the temporary file (non-existing yet)
         # and f.target() is the target file
@@ -415,9 +429,13 @@ class TmpOutput(str):
 
 class TmpDir(str):
     '''
-    Create a temporary directory
+    Create a temporary directory, and clean it up afterwards.
 
     Example:
+        with TmpDir() as d:   # create a temporary directory such as /tmp/tmpfiles_9aamr0/
+            # <use this directory as string d>
+
+    Alternate:
         d = TmpDir()   # create a temporary directory such as /tmp/tmpfiles_9aamr0/
         # <use this directory as string d>
         d.clean() # remove the temporary directory
