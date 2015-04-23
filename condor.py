@@ -77,6 +77,7 @@ import os
 import sys
 import socket
 import getpass
+from math import ceil
 from multiprocessing import Queue
 from time import sleep
 from multiprocessing import Process
@@ -539,6 +540,9 @@ class CondorPool(Pool):
         - loadavg: average load requirement passed to Qsub
         - memory requirement passed to Qsub
         - groupsize: launch jobs by groups of size groupsize
+        - ngroups: adjust groupsize to use a maximum of ngroups
+          this option supercedes groupsize
+          default None: use groupsize
         - **kwargs: other keyword arguments passed to Pool
     '''
 
@@ -546,6 +550,7 @@ class CondorPool(Pool):
             loadavg = 2.,
             memory = 2000,
             groupsize = 1,
+            ngroups = None,
             **kwargs):
 
         Pool.__init__(self, **kwargs)
@@ -555,6 +560,7 @@ class CondorPool(Pool):
         self.__memory = memory
         assert isinstance(groupsize, int) and (groupsize > 0)
         self.__groupsize = groupsize
+        self.__ngroups = ngroups
 
     def submit(self, jobs, uri):
 
@@ -566,6 +572,10 @@ class CondorPool(Pool):
         #
         if not os.path.exists(self.__log):
             makedirs(self.__log)
+
+        # adjust groupsize to ngroups
+        if self.__ngroups is not None:
+            self.__groupsize = int(jobs.total()/float(self.__ngroups))+1
 
         condor_header = textwrap.dedent('''
         universe = vanilla
@@ -581,7 +591,7 @@ class CondorPool(Pool):
         ''')
 
         condor_job = textwrap.dedent('''
-        arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} {job_ids}'"
+        arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} C {job_ids}'"
         queue
         ''')
         with Tmp('condor.run') as condor_script:
@@ -629,12 +639,15 @@ class QsubPool(Pool):
         - log: location for storing the log files
         - loadavg: average load requirement passed to Qsub
         - memory requirement passed to Qsub
+        - ngroups: use a maximum of ngroups
+          default None: use 1 group per job
         - **kwargs: other keyword arguments passed to Pool
     '''
 
     def __init__(self, log='/tmp/qsub-log-{}'.format(getpass.getuser()),
                  loadavg = 2.,
                  memory = 2000,
+                 ngroups = None,
                  **kwargs):
 
         Pool.__init__(self, **kwargs)
@@ -642,6 +655,7 @@ class QsubPool(Pool):
         self.__log = log
         self.__loadavg = loadavg
         self.__memory = memory
+        self.__ngroups = ngroups
 
     def submit(self, jobs, uri):
 
@@ -654,51 +668,56 @@ class QsubPool(Pool):
         if not os.path.exists(self.__log):
             os.mkdir(self.__log)
 
+        if self.__ngroups is None:
+            self.__ngroups = jobs.total()
+        groupsize = int(ceil(jobs.total()/float(self.__ngroups)))
+
         qsub_header = textwrap.dedent('''
         #PBS -S /bin/bash
         #PBS -o {dirlog}/out.$PBS_JOBID
         #PBS -e {dirlog}/err.$PBS_JOBID
-        #PBS -t 0-{njobs}
+        #PBS -t 0-{ngroups}
         export LD_LIBRARY_PATH={ld_library_path} 
         export PYTHONPATH={pythonpath} 
         export PATH={path}
         ''')
 
         qsub_job = textwrap.dedent('''
-        sh -c '{python_exec} -m {worker} {pyro_uri} $PBS_ARRAYID'
+        sh -c '{python_exec} -m {worker} {pyro_uri} Q $PBS_ARRAYID {groupsize} {njobs}'
         ''')
 
-        #
-        # create the QSUB script
-        #
-        qsub_script = Tmp('qsub.pbs')
-        fp = open(qsub_script, 'w')
-        fp.write(qsub_header.format(
-            pythonpath = ':'.join(sys.path),
-            path = os.environ.get("PATH", ""),
-            ld_library_path = os.environ.get("LD_LIBRARY_PATH", ""),
-            dirlog = self.__log,
-            memory = self.__memory,
-            loadavg = self.__loadavg,
-            njobs = jobs.total()-1 ))
-        fp.write(qsub_job.format(
-                worker=__name__,
-                python_exec = sys.executable,
-                pyro_uri=uri))
-        fp.close()
+        with Tmp('qsub.pbs') as qsub_script:
+            #
+            # create the QSUB script
+            #
+            fp = open(qsub_script, 'w')
+            fp.write(qsub_header.format(
+                pythonpath = ':'.join(sys.path),
+                path = os.environ.get("PATH", ""),
+                ld_library_path = os.environ.get("LD_LIBRARY_PATH", ""),
+                dirlog = self.__log,
+                memory = self.__memory,
+                loadavg = self.__loadavg,
+                ngroups = self.__ngroups-1))
+            fp.write(qsub_job.format(
+                    worker=__name__,
+                    python_exec = sys.executable,
+                    pyro_uri=uri,
+                    groupsize=groupsize,
+                    njobs=jobs.total(),
+                    ))
+            fp.close()
 
-        #
-        # submit the jobs to QSUB
-        #
-        command = 'qsub {}'.format(qsub_script)
-        ret = system(command)
-        if ret != 0:
-            self.terminate_server()
-            qsub_script.clean()
-            raise Exception('Could not run %s' % (command))
+            #
+            # submit the jobs to QSUB
+            #
+            command = 'qsub {}'.format(qsub_script)
+            ret = system(command)
+            if ret != 0:
+                self.terminate_server()
+                raise Exception('Could not run %s' % (command))
 
-        sleep(3)
-        qsub_script.clean()
+            sleep(3)
 
 
 def monitor(pyro_uri):
@@ -776,7 +795,17 @@ def monitor(pyro_uri):
 def worker(argv):
 
     pyro_uri = argv[1]
-    job_ids = map(int, argv[2:])  # list of job ids to process
+    method = argv[2]  # method to specify the jobs ids
+    if method == 'C':
+        # condor method, specify all job ids
+        job_ids = map(int, argv[3:])  # list of job ids to process
+    elif method == 'Q':
+        # qsub method, specify group id, group size and last job id
+        group_id = int(argv[3])
+        groupsize = int(argv[4])
+        njobs = int(argv[5])
+        job_ids = range(group_id*groupsize, (group_id+1)*groupsize)
+        job_ids = filter(lambda x: x<njobs, job_ids)
 
     #
     # connect to the daemon
