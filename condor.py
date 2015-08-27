@@ -378,7 +378,7 @@ class Pool(object):
 
     def map(self, function, *iterables):
 
-        if len(iterables[0]) == 0:
+        if (len(iterables) == 0) or (len(iterables[0]) == 0):
             return []
 
         jobs = self._map_async(function, *iterables)
