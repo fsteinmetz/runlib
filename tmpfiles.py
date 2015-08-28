@@ -404,7 +404,7 @@ class TmpOutput(str):
             raise IOError('Error executing "{}"'.format(cmd))
 
         # output file: rename to final file
-        cmd = 'mv {} {}'.format(tmpmovefile, self.__filename)
+        cmd = 'mv "{}" "{}"'.format(tmpmovefile, self.__filename)
         if system(cmd):
             raise IOError('Error executing "{}"'.format(cmd))
 
