@@ -148,6 +148,18 @@ def chunks(l, n):
     for i in xrange(0, len(l), n):
         yield l[i:i+n]
 
+def sendmail(dest, msg):
+    '''
+    Sends an e-mail
+    '''
+    import smtplib
+    if isinstance(dest, str):
+        dest = [dest]
+    s = smtplib.SMTP('localhost')
+    s.sendmail('condor.py', dest, msg)
+    print('report e-mail sent to', dest)
+    s.quit()
+
 class Jobs(object):
     '''
     A class to manage the jobs inputs/outputs
@@ -368,13 +380,15 @@ class Pool(object):
           to avoid potential overflow of the results queue
         - custom: list of attributes necessary to pass the arguments
                   (custom classes)
+        - email: e-mail address to send the report
     '''
 
-    def __init__(self, progressbar=True, nqueue=-1, custom=[]):
+    def __init__(self, progressbar=True, nqueue=-1, custom=[], email=None):
         self.__progressbar = progressbar
         self.__server = None
         self.__nqueue = nqueue
         self.__custom = custom
+        self.__email = email
 
     def map(self, function, *iterables):
 
@@ -411,6 +425,13 @@ class Pool(object):
             print('interrupted!')
             raise
 
+        if self.__email is not None:
+            count, _ = jobs.resultCounter()
+            msg = 'Job finished at {}\n'.format(datetime.now())
+            msg += '\n'
+            for k in count:
+                msg += '{}: {} times\n'.format(str(k), count[k])
+            sendmail(self.__email, msg)
 
         #
         # store the results
