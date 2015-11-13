@@ -234,6 +234,10 @@ class TmpInput(str):
             copy = 'bunzip2 -{v}c "{input_file}" > "{output_file}"'
             base = basename(filename)[:-3]
 
+        elif filename.endswith('.zip'):
+            copy = 'unzip "{input_file}" -d "{output_dir}"'
+            base = None
+
         elif cfg.verbose:
             copy = 'cp -v "{input_file}" "{output_file}"'
             base = basename(filename)
