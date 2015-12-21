@@ -255,7 +255,7 @@ class Jobs(object):
         # count the occurences of each result
         # (only for int and string, with a limit of max_counter)
         # for other classes, count only the classes
-        if isinstance(v, int) or isinstance(v, str):
+        if isinstance(v, (int, str)):
             if len(self.__counter) < self.max_counter:
                 if v in self.__counter:
                     self.__counter[v] += 1
@@ -442,8 +442,9 @@ class Pool(object):
         if self.__progressbar:
             totaltime = datetime.now() - t0
             print('Elapsed time:', totaltime)
-            print('Total time:', jobs.totaltime())
+            print('Cumulated time:', jobs.totaltime())
             print('Ratio is %.2f' % (jobs.totaltime().total_seconds()/totaltime.total_seconds()))
+            print('Average running time:', jobs.totaltime()/jobs.total())
 
         #
         # terminate the pyro daemon
