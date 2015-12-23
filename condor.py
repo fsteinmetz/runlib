@@ -88,6 +88,7 @@ import inspect
 from bisect import bisect
 from datetime import datetime, timedelta
 import Pyro4
+import traceback
 import textwrap
 import warnings
 from collections import Counter as CCounter
@@ -829,8 +830,6 @@ def worker(argv):
         job_ids = range(group_id*groupsize, (group_id+1)*groupsize)
         job_ids = filter(lambda x: x<njobs, job_ids)
 
-    exceptions = []
-
     #
     # connect to the daemon
     #
@@ -894,13 +893,12 @@ def worker(argv):
             result = f(*args)
         except Exception as ex:
             jobs.putResult((job_id, ex, datetime.now() - t0))
-            exceptions.append(ex)
+
+            # *prints* the exception without interrupting
+            print(traceback.format_exc())
         else:
             jobs.putResult((job_id, result, datetime.now() - t0))
 
-    # raise an exception, if any
-    if len(exceptions) > 0:
-        raise exceptions[0]
 
 
 if __name__ == '__main__':
