@@ -2,35 +2,6 @@
 # vim:fileencoding=utf-8
 
 
-
-'''
-A module to easily manage temporary files
-
-    1) Temporary input files (TmpInput)
-       These files are copied locally, used as an input for the processing,
-       then removed
-       If gzip or bzip compressed, the input file is decompressed
-
-    2) Temporary output files (TmpOutput)
-       These temporary files are created, and copied upon success to their
-       final destination
-
-    3) Pure temporary files (Tmp)
-       Pure temporary files are created from scratch, and removed after use
-
-    These classes contain the following features:
-        - Ensure temporary files unicity by using unique temporary directories
-        - Check free disk space on start
-        - Automatic cleanup of all temporary files
-          => The use of a "with ... as ..." block is advised
-
-    4) Cfg class: stores module-wise configuration.
-
-'''
-
-
-
-
 from __future__ import print_function
 from os.path import exists, basename, join, dirname
 from os import system, rmdir, statvfs, walk
@@ -40,6 +11,259 @@ from shutil import rmtree
 import fnmatch
 
 
+class TmpManager(object):
+    '''
+    A class to manage temporary files and directories.
+    Use the python 'with' statement to clean-up all temporary files after use
+    (at the end of the 'with' context).
+
+    - temporary input files:
+      copied locally with decompression, removed afterwards
+      also decompresses tar.gz, tar.bz2 or zip archives
+
+    - temporary output files:
+      created by the program, moved to final destination upon success, removed otherwise
+
+    - temporary files:
+      created by the program, removed afterwards
+
+    - temporary directories:
+      used by the program, removed afterwards
+
+    * Features *
+        * Use a 'with' context to safely cleanup all temporary files after use,
+          even when the program crashes
+        * Ensure temporary files unicity by using unique temporary directories
+        * Check free disk space on start
+        * Choose the temporary directory
+
+    Example:
+
+        with TmpManager('/tmp/') as tm:  # instantiate the tmp manager on directory '/tmp/'
+
+            # decompress a file to tmp directory and return the name
+            # of the decompressed file
+            input1 = tm.input('/data/file.gz')
+
+            # if the input is an archive, returns a list of all the files in
+            # the archive
+            file_list = tm.input('/data/file.tar.gz')
+
+            # returns a temporary file that will be cleaned up
+            tmp = tm.file('filename.txt')
+
+            # returns a temporary directory
+            dir = tm.directory()
+
+            # returns a filename in tmp directory
+            # this file will be created afterwards, and moved to destination
+            # upon commit()
+            out = tm.output('/data/result.dat') 
+
+
+            # move all output files to their destination
+            # (otherwise they are cleared)
+            tm.commit()
+    '''
+    def __init__(self, tmpdir='/tmp/', overwrite=False, prefix='tmpfiles_', verbose=False, freespace_mb=1000):
+        self.__tmpdir = tmpdir
+        self.__freespace_mb = freespace_mb
+        self.__prefix = prefix
+        self.__list_tmp = []   # list of temporary files
+        self.__list_out = []   # list of (tmpfile, target output)
+        self.__verbose = verbose
+        self.__overwrite = overwrite
+        assert exists(self.__tmpdir)
+
+    def df(self, path):
+        '''
+        Returns the free disk space in MB
+        '''
+        res = statvfs(path)
+        available = int(res.f_frsize*res.f_bavail/(1024.**2))   # available space in MB
+        return available
+
+    def check_free_space(self):
+        '''
+        Check that available space is sufficient in tmpdir
+        '''
+        available = self.df(self.__tmpdir)
+
+        if (self.__freespace_mb > 0) and (available < self.__freespace_mb):
+            raise IOError('Not enough free space in {} ({} MB remaining, {} MB required)'.format(
+                self.__tmpdir, available, self.__freespace_mb))
+
+    def mkdirtmp(self):
+        '''
+        Creates a unique directory
+        '''
+        tmpd = tempfile.mkdtemp(dir=self.__tmpdir, prefix=self.__prefix)
+        self.__list_tmp.append(tmpd)
+        return tmpd
+
+    def remove(self, filename):
+        ''' remove a file '''
+        if self.__verbose:
+            cmd = 'rm -fv "{}"'.format(filename)
+        else:
+            cmd = 'rm -f "{}"'.format(filename)
+        if system(cmd):
+            raise Exception('Error executing command "{}"'.format(cmd))
+
+    def input(self, filename):
+        '''
+        Copy filename to temporary location
+        with on-the-fly decompression, and cleanup on __exit__ (end of TmpManager context)
+        '''
+        self.check_free_space()
+        if self.__verbose:
+            v = 'v'
+        else:
+            v = ''
+
+        #
+        # determine how to deal with input file
+        #
+        if (filename.endswith('.tgz')
+                or filename.endswith('.tar.gz')):
+            copy = 'tar xz{v}f "{input_file}" -C "{output_dir}"'
+            base = None
+
+        elif filename.endswith('.gz'):
+            copy = 'gunzip -{v}c "{input_file}" > "{output_file}"'
+            base = basename(filename)[:-3]
+
+        elif filename.endswith('.Z'):
+            copy = 'gunzip -{v}c "{input_file}" > "{output_file}"'
+            base = basename(filename)[:-2]
+
+        elif filename.endswith('.tar.bz2') or filename.endswith('.tbz2'):
+            copy = 'tar xj{v}f "{input_file}" -C "{output_dir}"'
+            base = None
+
+        elif filename.endswith('.tar'):
+            copy = 'tar x{v}f "{input_file}" -C "{output_dir}"'
+            base = None
+
+        elif filename.endswith('.bz2'):
+            copy = 'bunzip2 -{v}c "{input_file}" > "{output_file}"'
+            base = basename(filename)[:-4]
+
+        elif filename.endswith('.zip'):
+            copy = 'unzip "{input_file}" -d "{output_dir}"'
+            base = None
+
+        elif cfg.verbose:
+            copy = 'cp -v "{input_file}" "{output_file}"'
+            base = basename(filename)
+        else:
+            copy = 'cp "{input_file}" "{output_file}"'
+            base = basename(filename)
+
+        # create temporary directory
+        tmpd = self.mkdirtmp()
+
+        # format the copy command
+        if base is None:
+            tmpfile = None
+            cmd = copy.format(input_file=filename, output_dir=tmpd, v=v)
+        else:
+            tmpfile = join(tmpd, base)
+            cmd = copy.format(input_file=filename, output_file=tmpfile, v=v)
+
+        # does the copy
+        if system(cmd):
+            remove(tmpfile)
+            raise IOError('Error executing "{}"'.format(cmd))
+
+        # determine the reference file name if not done already
+        if tmpfile is None:
+            tmpfile = list(findfiles(tmpd, '*'))
+
+        return tmpfile
+
+    def output(self, target):
+        '''
+        Generate a temporary filename that will be moved to target location
+        upon commit() (and cleaned up otherwise)
+        '''
+        if exists(target) and (not self.__overwrite):
+            raise IOError('Error, {} exists'.format(target))
+
+        # create output directory if necessary
+        if (not exists(dirname(target))) and (dirname(target) != ''):
+            cmd = 'mkdir -p {}'.format(dirname(target))
+            if system(cmd):
+                raise IOError('Error executing command "{}"'.format(cmd))
+
+        self.check_free_space()
+
+        tmpd = self.mkdirtmp()
+        tmpfile = join(tmpd, basename(target))
+        self.__list_out.append((tmpfile, target))
+
+        return tmpfile
+
+    def file(self, filename):
+        '''
+        Generate a temporary filename that will be cleaned up on __exit__
+        '''
+        self.check_free_space()
+
+        tmpd = self.mkdirtmp()
+        return join(tmpd, basename(filename))
+
+    def directory(self):
+        '''
+        Generate a temporary directory
+        '''
+        self.check_free_space()
+        return self.mkdirtmp()
+
+    def commit(self):
+        '''
+        Move all output files to their target location
+        '''
+        while len(self.__list_out) > 0:
+            (tmpfile, target) = self.__list_out.pop(0)
+
+            if exists(target):
+                if self.__overwrite:
+                    self.remove(target)
+                else:
+                    raise IOError('Error, file {} exists'.format(target))
+            if not exists(tmpfile):
+                raise IOError('Error, file {} does not exist'.format(tmpfile))
+            if self.__verbose:
+                print('Move "{}" to "{}"'.format(tmpfile, target))
+            cmd = 'mv -v "{}" "{}.tmp"'.format(tmpfile, target)
+            if self.__verbose:
+                print(cmd)
+            if system(cmd):
+                raise IOError('Error executing command "{}"'.format(cmd))
+            cmd = 'mv -v "{}.tmp" "{}"'.format(target, target)
+            if self.__verbose:
+                print(cmd)
+            if system(cmd):
+                raise IOError('Error executing command "{}"'.format(cmd))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        # clean up tmpfiles
+        while len(self.__list_tmp) > 0:
+            tmpd = self.__list_tmp.pop(0)
+            if exists(tmpd):
+                rmtree(tmpd)
+            else:
+                warnings.warn('TmpManager.__exit__: Directory {} has already been deleted'.format(tmpd))
+
+    def __del__(self):
+        for (f, _) in self.__list_out:
+            warnings.warn('"{}" has not been commited'.format(f))
+        for f in self.__list_tmp:
+            warnings.warn('"{}" may remain'.format(f))
 
 
 # module-wide parameters
@@ -114,6 +338,8 @@ class Tmp(str):
           Should not contain a directory, the directory is provided module-wise
     '''
     def __new__(cls, tmpfile='tmpfile'):
+
+        warnings.warn('The Tmp class will be deprecated. Please use TmpManager instead.')
 
         assert dirname(tmpfile) == ''
 
@@ -197,6 +423,8 @@ class TmpInput(str):
     def __new__(cls,
             filename,
             pattern = '*'):
+
+        warnings.warn('The TmpInput class will be deprecated. Please use TmpManager instead.')
 
         if cfg.verbose:
             v = 'v'
@@ -345,6 +573,8 @@ class TmpOutput(str):
             filename,
             overwrite=False):
 
+        warnings.warn('The TmpOutput class will be deprecated. Please use TmpManager instead.')
+
         # check free disk space
         cfg.check_free_space()
 
@@ -446,6 +676,8 @@ class TmpDir(str):
     '''
 
     def __new__(cls):
+
+        warnings.warn('The TmpDir class will be deprecated. Please use TmpManager instead.')
 
         # check free disk space
         cfg.check_free_space()
