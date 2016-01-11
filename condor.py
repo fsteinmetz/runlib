@@ -82,7 +82,7 @@ from multiprocessing import Queue
 from time import sleep
 from multiprocessing import Process
 from os import system, makedirs
-from tmpfiles import Tmp
+from tmpfiles import TmpManager
 from sys import argv
 import inspect
 from bisect import bisect
@@ -617,7 +617,9 @@ class CondorPool(Pool):
         arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} C {job_ids}'"
         queue
         ''')
-        with Tmp('condor.run') as condor_script:
+
+        with TmpManager() as tm:
+            condor_script = tm.file('condor.run')
 
             #
             # create the condor script
@@ -709,7 +711,9 @@ class QsubPool(Pool):
         sh -c '{python_exec} -m {worker} {pyro_uri} Q $PBS_ARRAYID {groupsize} {njobs}'
         ''')
 
-        with Tmp('qsub.pbs') as qsub_script:
+        with TmpManager() as tm:
+            qsub_script = tm.file('qsub.pbs')
+
             #
             # create the QSUB script
             #
