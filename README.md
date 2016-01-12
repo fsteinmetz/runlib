@@ -35,19 +35,32 @@ files (gz, bz, tar, zip), check disck space, unique paths, etc.
 
 _Example:_
 
-        with TmpInput('/path/to/source.data') as f:
-            # the source file is copied to a unique temporary directory
-            # and f contains the file name of the temporary file
-            # <use f as an input to a processor>
-        # f in cleaned up at this point
+        with TmpManager('/tmp/') as tm:  # instantiate the tmp manager on directory '/tmp/'
+
+            # decompress a file to tmp directory and return the name
+            # of the decompressed file
+            input1 = tm.input('/data/file.gz')
+
+            # if the input is an archive, returns a list of all the files in
+            # the archive
+            file_list = tm.input('/data/file.tar.gz')
+
+            # returns a temporary file that will be cleaned up
+            tmp = tm.file('filename.txt')
+
+            # returns a temporary directory
+            dir = tm.directory()
+
+            # returns a filename in tmp directory
+            # this file will be created afterwards, and moved to destination
+            # upon commit()
+            out = tm.output('/data/result.dat') 
 
 
-        with TmpOutput('/path/to/target.data') as f:
-            # at this point, f is the temporary file name (non-existing yet)
-            # and f.target() is the target file
-            #
-            # <create file f>
-            #
-            if <f created successfully>:
-                f.move() # move f to target
+            # move all output files to their destination
+            # (otherwise they are cleared)
+            tm.commit()
+
+        # NOTE: all temporary files are cleared up when leaving the 'with' context
+        # even in case of error in the python code.
 
