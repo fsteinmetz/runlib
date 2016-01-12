@@ -1,16 +1,16 @@
 runlib
 ======
 
-Several utility tools written in python, for massively parallel processing and
+Some python utility tools for massively parallel processing and
 data handling.
 
 
 1. condor.py
 ------------
 
-A clean and simple python interface to massively parallel computing frameworks.
+A simple python interface to massively parallel computing frameworks.
 Initially developped for [HTCondor](http://research.cs.wisc.edu/htcondor/) ; it
-has been extended to support [Sun Grid Engine (qsub)](http://en.wikipedia.org/wiki/Oracle_Grid_Engine).  
+has been extended to support Sun Grid Engine (qsub).
 
 _Example:_
 
@@ -27,8 +27,11 @@ _Example:_
 2. tmpfiles.py
 --------------
 
-Management of temporary files: inputs to a processing (TmpInput), outputs of a processing (TmpOutput), and pure temporary files (Tmp).
-Includes several useful features: cleanup after use, uncompress input files if needed, check disck space, unique paths, etc.
+Management of temporary files: inputs to a processing (TmpManager().input),
+outputs of a processing (TmpManager().output), pure temporary files
+(TmpManager().file) and temporary directories (TmpManager().directory).
+Includes several features: cleanup after use, automatic uncompress of input
+files (gz, bz, tar, zip), check disck space, unique paths, etc.
 
 _Example:_
 
@@ -48,7 +51,3 @@ _Example:_
             if <f created successfully>:
                 f.move() # move f to target
 
-3. archive.py
--------------
-
-Archive data to external hard drives.
