@@ -72,6 +72,8 @@ HOW IT WORKS:
 
 
 from __future__ import print_function
+from __future__ import division
+from __future__ import absolute_import
 import importlib
 import os
 import sys
@@ -130,7 +132,7 @@ except:
     def Bar(): pass
     def ETA(): pass
     def Counter(x): pass
-    class Widget(): pass
+    class Widget(object): pass
 
 class Custom(Widget):
     '''
@@ -146,7 +148,7 @@ def chunks(l, n):
     '''
     Yield successive n-sized chunks from l.
     '''
-    for i in xrange(0, len(l), n):
+    for i in range(0, len(l), n):
         yield l[i:i+n]
 
 def sendmail(dest, msg):
@@ -428,7 +430,8 @@ class Pool(object):
 
         if self.__email is not None:
             count, _ = jobs.resultCounter()
-            msg = 'Job finished at {}\n'.format(datetime.now())
+            msg = 'Subject: [condor.py] jobs done\n\n'
+            msg += 'Job finished at {}\n'.format(datetime.now())
             msg += '\n'
             for k in count:
                 msg += '{}: {} times\n'.format(str(k), count[k])
@@ -445,7 +448,7 @@ class Pool(object):
             print('Elapsed time:', totaltime)
             print('Cumulated time:', jobs.totaltime())
             print('Ratio is %.2f' % (jobs.totaltime().total_seconds()/totaltime.total_seconds()))
-            print('Average running time:', jobs.totaltime()/jobs.total())
+            print('Average running time:', jobs.totaltime()//jobs.total())
 
         #
         # terminate the pyro daemon
@@ -561,7 +564,8 @@ class CondorPool(Pool):
     Arguments:
         - log: location for storing the log files
         - loadavg: average load requirement passed to Qsub
-        - memory requirement passed to Qsub
+        - memory requirement
+        - cpu requirement (number of cpus used by the jobs)
         - groupsize: launch jobs by groups of size groupsize
         - ngroups: adjust groupsize to use a maximum of ngroups
           this option supercedes groupsize
@@ -573,6 +577,7 @@ class CondorPool(Pool):
             loadavg = 2.,
             memory = 2000,
             groupsize = 1,
+            n_cpus = 1,
             ngroups = None,
             **kwargs):
 
@@ -580,6 +585,7 @@ class CondorPool(Pool):
 
         self.__log = log
         self.__loadavg = loadavg
+        self.__n_cpus = n_cpus
         self.__memory = memory
         assert isinstance(groupsize, int) and (groupsize > 0)
         self.__groupsize = groupsize
@@ -598,7 +604,7 @@ class CondorPool(Pool):
 
         # adjust groupsize to ngroups
         if self.__ngroups is not None:
-            self.__groupsize = int(jobs.total()/float(self.__ngroups))+1
+            self.__groupsize = int(jobs.total()/self.__ngroups)+1
 
         condor_header = textwrap.dedent('''
         universe = vanilla
@@ -610,7 +616,7 @@ class CondorPool(Pool):
         environment = "LD_LIBRARY_PATH={ld_library_path} PYTHONPATH={pythonpath} PATH={path}"
         requirements = (OpSys == "LINUX") && (LoadAvg < {loadavg})
         request_memory = {memory}
-        request_cpus = 1
+        request_cpus = {n_cpus}
         ''')
 
         condor_job = textwrap.dedent('''
@@ -631,6 +637,7 @@ class CondorPool(Pool):
                 ld_library_path = os.environ.get("LD_LIBRARY_PATH", ""),
                 dirlog = self.__log,
                 memory = self.__memory,
+                n_cpus = self.__n_cpus,
                 loadavg = self.__loadavg))
             for grp in chunks(range(jobs.total()), self.__groupsize):
                 job_ids = ' '.join(map(str, grp))  # a string containing all the jobs in this group
@@ -797,7 +804,7 @@ def monitor(pyro_uri):
             if len(count) == 0:
                 stdscr.addstr(line, 0, '(None)')
 
-            for i in xrange(len(count)):
+            for i in range(len(count)):
                 k, t = endtimes_srt[i]
                 c = count[k]
                 message = ' {} ({} {}, latest {} ago)'.format(k, c,
@@ -825,14 +832,14 @@ def worker(argv):
     method = argv[2]  # method to specify the jobs ids
     if method == 'C':
         # condor method, specify all job ids
-        job_ids = map(int, argv[3:])  # list of job ids to process
+        job_ids = list(map(int, argv[3:]))  # list of job ids to process
     elif method == 'Q':
         # qsub method, specify group id, group size and last job id
         group_id = int(argv[3])
         groupsize = int(argv[4])
         njobs = int(argv[5])
         job_ids = range(group_id*groupsize, (group_id+1)*groupsize)
-        job_ids = filter(lambda x: x<njobs, job_ids)
+        job_ids = [x for x in job_ids if x<njobs]
 
     #
     # connect to the daemon
