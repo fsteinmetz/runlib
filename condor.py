@@ -84,7 +84,7 @@ from multiprocessing import Queue
 from time import sleep
 from multiprocessing import Process
 from os import system, makedirs
-from tmpfiles import TmpManager
+from .tmpfiles import TmpManager
 from sys import argv
 import inspect
 from bisect import bisect
@@ -563,7 +563,8 @@ class CondorPool(Pool):
 
     Arguments:
         - log: location for storing the log files
-        - loadavg: average load requirement passed to Qsub
+        - loadavg: requires load average be less than loadavg
+              (default 2 x n_cpus)
         - memory requirement
         - cpu requirement (number of cpus used by the jobs)
         - groupsize: launch jobs by groups of size groupsize
@@ -574,7 +575,7 @@ class CondorPool(Pool):
     '''
 
     def __init__(self, log='/tmp/condor-log-{}'.format(getpass.getuser()),
-            loadavg = 2.,
+            loadavg = None,
             memory = 2000,
             groupsize = 1,
             n_cpus = 1,
@@ -584,7 +585,10 @@ class CondorPool(Pool):
         Pool.__init__(self, **kwargs)
 
         self.__log = log
-        self.__loadavg = loadavg
+        if loadavg is None:
+            self.__loadavg = 2*n_cpus
+        else:
+            self.__loadavg = loadavg
         self.__n_cpus = n_cpus
         self.__memory = memory
         assert isinstance(groupsize, int) and (groupsize > 0)
