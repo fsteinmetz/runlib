@@ -84,7 +84,7 @@ from multiprocessing import Queue
 from time import sleep
 from multiprocessing import Process
 from os import system, makedirs
-from tmpfiles import TmpManager
+from runlib.tmpfiles import TmpManager
 from sys import argv
 import inspect
 from bisect import bisect
