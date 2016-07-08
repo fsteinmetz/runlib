@@ -84,7 +84,7 @@ from multiprocessing import Queue
 from time import sleep
 from multiprocessing import Process
 from os import system, makedirs
-from .tmpfiles import TmpManager
+from tmpfiles import TmpManager
 from sys import argv
 import inspect
 from bisect import bisect
@@ -571,6 +571,9 @@ class CondorPool(Pool):
         - ngroups: adjust groupsize to use a maximum of ngroups
           this option supercedes groupsize
           default None: use groupsize
+        - wrapper: wrapper command around python
+                   such as '/bin/time -v' (monitor memory usage)
+                   default: no wrapper command
         - **kwargs: other keyword arguments passed to Pool
     '''
 
@@ -580,6 +583,7 @@ class CondorPool(Pool):
             groupsize = 1,
             n_cpus = 1,
             ngroups = None,
+            wrapper='',
             **kwargs):
 
         Pool.__init__(self, **kwargs)
@@ -594,6 +598,7 @@ class CondorPool(Pool):
         assert isinstance(groupsize, int) and (groupsize > 0)
         self.__groupsize = groupsize
         self.__ngroups = ngroups
+        self.__wrapper = wrapper
 
     def submit(self, jobs, uri):
 
@@ -624,7 +629,7 @@ class CondorPool(Pool):
         ''')
 
         condor_job = textwrap.dedent('''
-        arguments = "sh -c '{python_exec} -m {worker} {pyro_uri} C {job_ids}'"
+        arguments = "sh -c '{wrapper} {python_exec} -m {worker} {pyro_uri} C {job_ids}'"
         queue
         ''')
 
@@ -649,6 +654,7 @@ class CondorPool(Pool):
                     worker=__name__,
                     python_exec = sys.executable,
                     pyro_uri=uri,
+                    wrapper = self.__wrapper,
                     job_ids=job_ids,
                     ))
             fp.close()
