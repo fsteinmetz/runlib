@@ -84,7 +84,7 @@ from multiprocessing import Queue
 from time import sleep
 from multiprocessing import Process
 from os import system, makedirs
-from runlib.tmpfiles import TmpManager
+from tmpfiles import TmpManager
 from sys import argv
 import inspect
 from bisect import bisect
@@ -582,6 +582,7 @@ class CondorPool(Pool):
             memory = 2000,
             groupsize = 1,
             n_cpus = 1,
+            n_gpus = 0,
             ngroups = None,
             wrapper='',
             **kwargs):
@@ -594,6 +595,7 @@ class CondorPool(Pool):
         else:
             self.__loadavg = loadavg
         self.__n_cpus = n_cpus
+        self.__n_gpus = n_gpus
         self.__memory = memory
         assert isinstance(groupsize, int) and (groupsize > 0)
         self.__groupsize = groupsize
@@ -626,6 +628,7 @@ class CondorPool(Pool):
         requirements = (OpSys == "LINUX") && (LoadAvg < {loadavg})
         request_memory = {memory}
         request_cpus = {n_cpus}
+        {request_GPUs}
         ''')
 
         condor_job = textwrap.dedent('''
@@ -647,6 +650,7 @@ class CondorPool(Pool):
                 dirlog = self.__log,
                 memory = self.__memory,
                 n_cpus = self.__n_cpus,
+                request_GPUs = '' if (self.__n_gpus == 0) else 'request_GPUs = {}'.format(self.__n_gpus),
                 loadavg = self.__loadavg))
             for grp in chunks(range(jobs.total()), self.__groupsize):
                 job_ids = ' '.join(map(str, grp))  # a string containing all the jobs in this group
