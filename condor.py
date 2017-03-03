@@ -89,6 +89,7 @@ from sys import argv
 import inspect
 from bisect import bisect
 from datetime import datetime, timedelta
+from .progress import Progress
 import Pyro4
 import traceback
 import textwrap
@@ -103,46 +104,6 @@ Pyro4.config.SERVERTYPE = "multiplex"
 Pyro4.config.SERIALIZER = "pickle"
 Pyro4.config.SERIALIZERS_ACCEPTED.add('pickle')
 
-#
-# Progress bar
-#
-try:
-    from progressbar import ProgressBar, Percentage, Bar, ETA, Counter, Widget
-except:
-    #
-    # define a basic ProgressBar (text progressbar)
-    # http://code.google.com/p/python-progressbar/
-    # if the module is not available
-    #
-    class ProgressBar(object):
-        def __init__(self, *args, **kwargs):
-            self.__total = kwargs['maxval']
-            self.__previous = None
-        def start(self): pass
-        def update(self, N):
-            if N != self.__previous:
-                print('[{}] {}/{} results have been received'.format(
-                        datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        N, self.__total))
-                self.__previous = N
-            pass
-        def finish(self):
-            self.update(self.__total)
-    def Percentage(): pass
-    def Bar(): pass
-    def ETA(): pass
-    def Counter(x): pass
-    class Widget(object): pass
-
-class Custom(Widget):
-    '''
-    A custom ProgressBar widget to display arbitrary text
-    '''
-    def update(self, bar):
-        try: return self.__text
-        except: return ''
-    def set(self, text):
-        self.__text = text
 
 def chunks(l, n):
     '''
@@ -408,20 +369,13 @@ class Pool(object):
         #
         t0 = datetime.now()
         try:
-            if self.__progressbar:
-                custom = Custom()
-                pbar = ProgressBar(widgets=[custom,Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
-                        maxval=jobs.total())
-                pbar.start()
+            pbar = Progress(jobs.total(), activate=self.__progressbar)
+            pbar.update(0, 'starting...')
             while not jobs.finished('map'):
                 status, ndone = jobs.status()
-                if self.__progressbar:
-                    custom.set(status)
-                    pbar.update(ndone)
+                pbar.update(ndone, status)
                 sleep(2)
-            if self.__progressbar:
-                custom.set('')
-                pbar.finish()
+            pbar.finish('')
         except KeyboardInterrupt:
             jobs.stop()
             self.__server.terminate()
@@ -467,20 +421,15 @@ class Pool(object):
 
         jobs = self._map_async(function, *iterables)
 
-        if self.__progressbar:
-            custom = Custom()
-            pbar = ProgressBar(widgets=[custom,Percentage(),Counter(',%d/'+str(jobs.total())),Bar(),' ',ETA()],
-                    maxval=jobs.total())
-            pbar.start()
+        pbar = Progress(jobs.total(), activate=self.__progressbar)
+        pbar.update(0, 'starting...')
 
         t0 = datetime.now()
         try:
             while not jobs.finished('imap'):
 
                 status, ndone = jobs.status()
-                if self.__progressbar:
-                    custom.set(status)
-                    pbar.update(ndone)
+                pbar.update(ndone, status)
 
                 if jobs.nstored() > 0:
                     yield jobs.getResult()[1]
@@ -492,9 +441,8 @@ class Pool(object):
             raise
 
         # display total time
+        pbar.finish('')
         if self.__progressbar:
-            custom.set('')
-            pbar.finish()
             totaltime = datetime.now() - t0
             print('Total time:', totaltime)
             print('Total CPU time:', jobs.totaltime())
