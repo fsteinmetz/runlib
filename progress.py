@@ -85,8 +85,8 @@ class Progress_progressbar2(object):
         self.pbar.update(value)
 
     def finish(self, message=''):
-        self.pbar.finish()
         self.label.format = message
+        self.pbar.finish()
 
 class Progress_progressbar(object):
 
@@ -113,8 +113,8 @@ class Progress_progressbar(object):
         self.pbar.update(value)
 
     def finish(self, message=''):
-        self.pbar.finish()
         self.custom.set(message)
+        self.pbar.finish()
 
 
 
