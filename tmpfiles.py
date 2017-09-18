@@ -45,9 +45,9 @@ class TmpManager(object):
             # of the decompressed file
             input1 = tm.input('/data/file.gz')
 
-            # if the input is an archive, returns a list of all the files in
-            # the archive
-            file_list = tm.input('/data/file.tar.gz')
+            # if the input is an archive, returns the temporary directory
+            # whose content can be listed using findfiles(<dir>, '*')
+            tmpdir = tm.input('/data/file.tar.gz')
 
             # returns a temporary file that will be cleaned up
             tmp = tm.file('filename.txt')
@@ -178,7 +178,7 @@ class TmpManager(object):
 
         # determine the reference file name if not done already
         if tmpfile is None:
-            tmpfile = list(findfiles(tmpd, '*'))
+            tmpfile = tmpd
 
         return tmpfile
 
