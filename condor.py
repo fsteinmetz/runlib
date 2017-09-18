@@ -160,18 +160,23 @@ class Jobs(object):
         self.__counter = {}   # number of occurence of each job result (string or int only)
         self.__endtimes = {}  # last occurence of each result
 
+    @Pyro4.expose
     def nqueue(self):
         return self.__nqueue
 
+    @Pyro4.expose
     def filename(self):
         return self.__filename
 
+    @Pyro4.expose
     def function_str(self):
         return self.__function_str
 
+    @Pyro4.expose
     def custom(self):
         return self.__custom
 
+    @Pyro4.expose
     def putJob(self, job):
 
         # the job starts with 'waiting'
@@ -179,6 +184,7 @@ class Jobs(object):
 
         self.inputs.append(job)
 
+    @Pyro4.expose
     def getJob(self, job_id):
 
         # starting to send the job
@@ -191,6 +197,7 @@ class Jobs(object):
 
         return args
 
+    @Pyro4.expose
     def putResult(self, TUPLE):
 
         if self.__stopping: return
@@ -259,6 +266,7 @@ class Jobs(object):
     def counter(self):
         return CCounter(self.__status)
 
+    @Pyro4.expose
     def status(self):
         '''
         returns a string describing the status,
@@ -283,6 +291,7 @@ class Jobs(object):
 
         return '[{}] '.format('|'.join(S)), count[self.status_stored] + count[self.status_done]
 
+    @Pyro4.expose
     def finished(self, mode):
         '''
         returns whether all the jobs are done
@@ -302,16 +311,19 @@ class Jobs(object):
 
         return self.nfetched() == self.total()
 
+    @Pyro4.expose
     def results(self):
         return self.__results
 
     def endtimes(self):
         return self.__endtimes
 
+    @Pyro4.expose
     def total(self):
         ''' total number of jobs '''
         return len(self.inputs)
 
+    @Pyro4.expose
     def totaltime(self):
         return self.__totaltime
 
