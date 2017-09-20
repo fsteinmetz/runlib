@@ -150,7 +150,7 @@ class TmpManager(object):
             base = basename(filename)[:-4]
 
         elif filename.endswith('.zip'):
-            copy = 'unzip "{input_file}" -d "{output_dir}"'
+            copy = 'unzip -q "{input_file}" -d "{output_dir}"'
             base = None
 
         elif cfg.verbose:
