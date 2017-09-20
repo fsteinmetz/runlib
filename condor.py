@@ -211,6 +211,7 @@ class Jobs(object):
         # done storing the job
         self.__status[job_id] = self.status_stored
 
+    @Pyro4.expose
     def getResult(self):
         '''
         get one result, returns (job_id, result, time)
@@ -257,6 +258,7 @@ class Jobs(object):
             print('{} elements are being sent, {} are being stored, waiting...'.format(nsending, nstoring))
             sleep(2)
 
+    @Pyro4.expose
     def nstored(self):
         return self.__status.count(self.status_stored)
 
