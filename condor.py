@@ -247,6 +247,7 @@ class Jobs(object):
     def resultCounter(self):
         return self.__counter, self.__endtimes
 
+    @Pyro4.expose
     def stop(self):
         self.__stopping = True
 
