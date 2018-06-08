@@ -462,7 +462,7 @@ def web_app(port=0, hostname=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--port', type=int,
+    parser.add_argument('-p', '--port', type=int, default=0,
                         help='port number to use instead of a random one.')
     args = parser.parse_args()
     web_app(port=args.port)
