@@ -43,7 +43,7 @@ html_header = dedent(
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
         <meta http-equiv="refresh" content="10" >
     <style>
-    p,h1 {
+    p,h1,li {
         font-family: Arial, Helvetica;
     }
     th {
@@ -236,6 +236,10 @@ class Clusters(object):
         """ returns a list of all owners """
         return list(set([c.owner for c in self]))
 
+    def count(self, op, value, owner=None):
+        return sum([c.count(op, value) for c in self
+                    if (owner is None) or (c.owner == owner)])
+
 
 def BaseHandlerMaker(clusters):
     class BaseHandler(web.RequestHandler):
@@ -253,7 +257,16 @@ def BaseHandlerMaker(clusters):
                 <p>Showing clusters from:
                 <ul>
                     {% for u in clusters.owners() %}
-                        <li><p><b><a href="/user/{{u}}">{{u}}</a></b><p></li>
+                        <li><b><a href="/user/{{u}}">{{u}}</a></b>:
+                            {% for k, v in jobstatus_names.items() %}
+                                {% if clusters.count('eq', k, u) > 0 %}
+                                    <div style="border:1px solid black; height: 15px; width: 15px;
+                                                display: inline-block;
+                                                background-color:{{color[k]}}"></div>
+                                    {{v}}: {{clusters.count('eq', k, u)}}
+                                {% endif %}
+                            {% endfor %}
+                            </li>
                     {% endfor %}
                 </ul>
                 </p>
@@ -294,7 +307,9 @@ def BaseHandlerMaker(clusters):
 
             </body>
             </html>
-            ''')).render(clusters=clusters, header=html_header, color=jobstatus_color, user=user)
+            ''')).render(clusters=clusters, header=html_header,
+                         jobstatus_names=jobstatus_names, color=jobstatus_color,
+                         user=user)
 
             self.set_header('Content-type', 'text/html')
             self.write(html)
