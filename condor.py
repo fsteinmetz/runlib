@@ -884,6 +884,11 @@ def worker(argv):
 
             # *prints* the exception without interrupting
             print(traceback.format_exc())
+
+            # raise the Error when not using grouping
+            # this allows better monitoring (returns a non-zero exitcode)
+            if len(job_ids) == 1:
+                raise
         else:
             jobs.putResult((job_id, result, datetime.now() - t0))
 
