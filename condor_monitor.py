@@ -105,6 +105,7 @@ class Job(object):
         self.err = jdata['Err']
 
         self.startdate = parsedate(jdata.get('JobStartDate', 0))
+        self.prio = int(jdata.get('JobPrio', None))
         self.completiondate = parsedate(jdata.get('CompletionDate', 0))
 
         if (self.startdate is not None) and (self.completiondate is not None):
@@ -148,6 +149,17 @@ class Cluster(object):
 
     def __getitem__(self, k):
         return self.jobs[k]
+    
+    def avgprio(self):
+        """
+        Returns the average prio of all jobs
+        """
+        prios = [j.prio for j in self.jobs.values()
+                 if ((j.status >= 3) and (j.status <= 4))]
+        if prios:
+            return f'{sum(prios)/len(prios):.1f}'
+        else:
+            return '-'
 
 
 class Clusters(object):
@@ -279,6 +291,8 @@ def BaseHandlerMaker(clusters):
                 <tr>
                     <th>Cluster</th>
                     <th>Status</th>
+                    <th>Prio</th>
+                    <th>Running</th>
                     <th>Completed</th>
                     <th>User</th>
                 </tr>
@@ -295,6 +309,8 @@ def BaseHandlerMaker(clusters):
                                         {{color[3]}} {{c.percent('lt', 3)}}%, {{color[3]}} {{c.percent('le', 3)}}%,
                                         {{color[4]}} {{c.percent('lt', 4)}}%, {{color[4]}} {{c.percent('le', 4)}}%
                                         )"> </div></td>
+                    <td>{{c.avgprio()}}</td>
+                    <td>{{c.count('eq', 2)}}</td>
                     <td>{{c.count('eq', 1)}}/{{c|length}}</td>
                     <td>{{c.owner}}</td>
                     </tr>
@@ -382,6 +398,7 @@ def ClusterHandlerMaker(clusters):
             <tr>
                 <th>Job</th>
                 <th>Status</th>
+                <th>Prio</th>
                 <th>ExitCode</th>
                 <th>Started</th>
                 <th>Elapsed</th>
@@ -390,6 +407,7 @@ def ClusterHandlerMaker(clusters):
                 <tr>
                 <td><a href="/cluster/{{j.clusterid}}/{{j.id}}">{{j.clusterid}}.{{j.id}}</a></td>
                 <td style='background: {{color[j.status]}}'>{{jobstatus_names[j.status]}}</td>
+                <td>{{j.prio}}</td>
                 <td>{{j.exitcode}}</td>
                 <td>{{j.startdate}}</td>
                 <td>{{j.elapsed}}</td>
