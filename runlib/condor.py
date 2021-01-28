@@ -71,9 +71,6 @@ HOW IT WORKS:
 '''
 
 
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
 import importlib
 import os
 import sys
@@ -84,12 +81,12 @@ from multiprocessing import Queue
 from time import sleep
 from multiprocessing import Process
 from os import system, makedirs
-from .tmpfiles import TmpManager
+from runlib.tmpfiles import TmpManager
 from sys import argv
 import inspect
 from bisect import bisect
 from datetime import datetime, timedelta
-from .progress import Progress
+from runlib.progress import Progress
 import Pyro4
 import traceback
 import textwrap
