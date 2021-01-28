@@ -5,7 +5,14 @@ Some python utility tools for massively parallel processing and
 data handling.
 
 
-1. condor.py
+1. Installation
+--------------
+
+This module can be installed with pip from the git repository:
+
+    pip install --no-deps git+http://git@github.com/fsteinmetz/runlib.git
+
+2. condor.py
 ------------
 
 A simple python interface to massively parallel computing frameworks.
@@ -24,7 +31,7 @@ _Example:_
         results = p.map(f, range(5))
 
 
-2. tmpfiles.py
+3. tmpfiles.py
 --------------
 
 Management of temporary files: inputs to a processing (TmpManager().input),
