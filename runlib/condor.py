@@ -136,13 +136,13 @@ class Jobs(object):
 
     max_counter = 20
 
-    def __init__(self, filename, function_str, custom=[], nqueue=-1):
+    def __init__(self, mod_name, function_str, custom=[], nqueue=-1):
         self.inputs = []
         self.outputs = Queue()  # (id, value) pairs
         self.__totaltime = timedelta(0)
         self.__status = []
-        self.__filename = filename            # name of the module containing the function to execute
-                                              # (absolute file name)
+        self.__cwd = os.getcwd()
+        self.__mod_name = mod_name            # name of the module containing the function to execute
         self.__function_str = function_str    # name of the function to execute
         self.__custom = custom                # additional attributes of module necessary
                                               # to pass the arguments
@@ -162,8 +162,8 @@ class Jobs(object):
         return self.__nqueue
 
     @Pyro4.expose
-    def filename(self):
-        return self.__filename
+    def mod_name(self):
+        return self.__mod_name
 
     @Pyro4.expose
     def function_str(self):
@@ -172,6 +172,10 @@ class Jobs(object):
     @Pyro4.expose
     def custom(self):
         return self.__custom
+
+    @Pyro4.expose
+    def cwd(self):
+        return self.__cwd
 
     @Pyro4.expose
     def putJob(self, job):
@@ -475,19 +479,15 @@ class Pool(object):
         #
         # initializations
         #
-
-        filename = os.path.abspath(inspect.getfile(function))
-        if filename.endswith('.pyc'):
-            filename = filename[:-1]
-            print('DEBUG PYC')
+        mod_name = function.__module__
         function_str = function.__name__
-        print('Map function "{}" in "{}" with executable "{}"'.format(function_str, filename, sys.executable))
+        print('Map function "{}" in "{}" with executable "{}"'.format(function_str, mod_name, sys.executable))
 
         #
         # start the pyro daemon in a thread
         #
         uri_q = Queue()
-        self.__server = Process(target=pyro_server, args=(Jobs(filename, function_str,
+        self.__server = Process(target=pyro_server, args=(Jobs(mod_name, function_str,
             nqueue=self.__nqueue, custom=self.__custom), uri_q))
         self.__server.start()
         sleep(1)
@@ -819,23 +819,25 @@ def worker(argv):
     # connect to the daemon
     #
     jobs = Pyro4.Proxy(pyro_uri)
-    filename = jobs.filename()
+    mod_name = jobs.mod_name()
     function_str = jobs.function_str()
     custom = jobs.custom()
+    cwd = jobs.cwd()
 
     #
-    # for safety,"cd" to the directory containing the target function
+    # for safety,"cd" to the nominal cwd
     #
-    os.chdir(os.path.dirname(filename))
+    os.chdir(cwd)
 
     #
     # import the target module
     #
-    modname = os.path.basename(filename)
-    if modname.endswith('.py'):
-        modname = modname[:-3]
-
-    mod = importlib.import_module(modname)
+    try:
+        mod = importlib.import_module(mod_name)
+    except ModuleNotFoundError:
+        print('Current directory is', os.getcwd(), file=sys.stderr)
+        print('Error upon import of', mod_name, file=sys.stderr)
+        raise
 
     # load the function to execute
     f = getattr(mod, function_str)
