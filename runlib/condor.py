@@ -479,7 +479,9 @@ class Pool(object):
         #
         # initializations
         #
-        mod_name = function.__module__
+        mod_name = os.path.relpath(function.__globals__['__file__'])
+        assert not mod_name.endswith('.pyc')
+        mod_name = mod_name.replace('.py', '').replace(os.path.sep, '.')
         function_str = function.__name__
         print('Map function "{}" in "{}" with executable "{}"'.format(function_str, mod_name, sys.executable))
 
