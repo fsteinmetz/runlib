@@ -17,7 +17,7 @@ def check_f(func):
         assert ret.exists()
         return ret
 
-    # because __globals__['__file__'] is used by Condor to determine the function path
+    # because __globals__['__file__'] is used by condor.py to determine the function path
     wrapped.__globals__['__file__'] = func.__globals__['__file__']
     return wrapped
 
@@ -44,7 +44,7 @@ def mapper(
           (to allow clean stopping the main script)
 
     Arguments:
-        * `f`: callable of type f(file_in, file_out, *args, **kwargs)
+        * `f`: callable of type f(file_in, file_out, *args) -> file_out
         * `list_input`: list of input files to be processed (list of str or Path)
            Note: not necessarily files, can be simple strings
         * `dir_out`: output directory
@@ -93,9 +93,6 @@ def mapper(
             else:
                 list_args.append((f_in, f_out_tmp, *(f_args if f_args else [])))
 
-        if n_skipped:
-            print(f'Skipped {n_skipped} existing files such as {last_skipped}')
-
         # Apply `f` over all args and move output upon success
         print(f'Mapping {f.__name__} over {len(list_out)} items...')
         if list_args:
@@ -104,6 +101,9 @@ def mapper(
                 shutil.move(res, f_out)
 
     print(f'Processed {len(list_out) - n_skipped} files with {f.__name__}')
+
+    if n_skipped:
+        print(f'Skipped {n_skipped} existing files such as {last_skipped}')
 
     if Path(tmpdir).exists():
         print(f'Warning, {tmpdir} has not been removed.')
