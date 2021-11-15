@@ -25,8 +25,8 @@ def check_f(func):
 def mapper(
         f: callable,
         list_input: typing.Iterable,
+        list_output: typing.Union[typing.Iterable, callable],
         dir_out: Path,
-        renamer: callable,
         f_args: typing.Optional[list]=None,
         create_out_dir=False,
         if_exists='skip',
@@ -47,23 +47,16 @@ def mapper(
         * `f`: callable of type f(file_in, file_out, *args) -> file_out
         * `list_input`: list of input files to be processed (list of str or Path)
            Note: not necessarily files, can be simple strings
+        * `list_output`:
+            - list of output files (without directory)
+            - or, a function applied to input, to generate output files.
+                Example: lambda x: x.name+'.nc'
         * `dir_out`: output directory
-        * `renamer`: function (str -> str) to rename input file name to output file name.
-          typically, to add a simple extension: lambda x: x.name+ext
         * `f_args`: list of further positional arguments to be passed to `f`
         * `create_out_dir`: whether to create output directory if it does not exist yet
         * `map_function`: the mapping function. Can be:
             - `map` for local mapping
             - `CondorPool().imap_unordered` for Condor mapping
-
-    Ex:
-        def f(file_in, file_out, *args, **kwargs):
-            [...]
-        mapper(f,
-               list_files,
-               dir_out,
-               namer=lambda x: x+'.nc',
-               )
     '''
     if create_out_dir:
         dir_out.mkdir(exist_ok=True, parents=True)
@@ -77,8 +70,12 @@ def mapper(
         list_args = []
         n_skipped = 0
         last_skipped = None
-        for f_in in list_input:
-            f_out = dir_out/renamer(f_in)
+        for i in range(len(list_input)):
+            f_in = list_input[i]
+            if callable(list_output):
+                f_out = dir_out/list_output(f_in)
+            else:
+                f_out = dir_out/list_output[i]
             f_out_tmp = Path(tmpdir)/f_out.name
             list_out.append(f_out)
 
