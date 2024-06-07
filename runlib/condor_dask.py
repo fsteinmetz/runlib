@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from dask_jobqueue import HTCondorCluster
-from dask.distributed import Client
+from dask.distributed import Client, as_completed
 
 
 class CondorPool:
@@ -26,3 +26,8 @@ class CondorPool:
     def map(self, function, *iterables):
         futures = self.client.map(function, *iterables)
         return self.client.gather(futures)
+
+    def imap_unordered(self, function, *iterables):
+        futures = self.client.map(function, *iterables)
+        for future in as_completed(futures):
+            yield future.result()
