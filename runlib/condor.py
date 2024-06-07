@@ -336,7 +336,11 @@ class Jobs(object):
 def pyro_server(jobs, uri_q):
 
     # initialize the pyro4 daemon
-    ip = socket.gethostbyname(socket.gethostname())
+    # https://stackoverflow.com/questions/166506/
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    ip = s.getsockname()[0]
+    s.close()
     if ip == '127.0.0.1':
         print('Error retrieving local ip, exiting...')
         exit(1)
