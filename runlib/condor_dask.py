@@ -21,6 +21,7 @@ class CondorPool:
         self.cluster = HTCondorCluster(cores=n_cpus, memory=f"{memory}MB", disk=disk)
         self.cluster.adapt(maximum_jobs=maximum_jobs)
         self.client = Client(self.cluster)
+        print('Dask daskboard link:', self.client.dashboard_link)
 
     def map(self, function, *iterables):
         futures = self.client.map(function, *iterables)
