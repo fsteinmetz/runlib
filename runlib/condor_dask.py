@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from datetime import datetime
+from pathlib import Path
+import tempfile
 from dask_jobqueue import HTCondorCluster
 from dask.distributed import Client, as_completed
+import getpass
 
 
 class CondorPool:
@@ -18,7 +22,13 @@ class CondorPool:
         CondorPool-like wrapper around dask distributed for running jobs with dask
         on HTCondor
         """
-        self.cluster = HTCondorCluster(cores=n_cpus, memory=f"{memory}MB", disk=disk)
+        logdir = (
+            Path(tempfile.gettempdir())
+            / f"condor-dask-{getpass.getuser()}"
+            / datetime.now().isoformat()
+        )
+        self.cluster = HTCondorCluster(cores=n_cpus, memory=f"{memory}MB", disk=disk,
+                                       log_directory=logdir)
         self.cluster.adapt(maximum_jobs=maximum_jobs)
         self.client = Client(self.cluster)
         print('Dask daskboard link:', self.client.dashboard_link)
