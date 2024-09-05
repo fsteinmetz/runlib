@@ -8,6 +8,8 @@ authors = ["François Steinmetz <fs@hygeos.com>"]
 python = "^3.8"
 
 [tool.poetry.dev-dependencies]
+progressbar2 = "*"
+pyro4 = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

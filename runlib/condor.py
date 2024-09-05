@@ -83,7 +83,6 @@ from multiprocessing import Process
 from os import system, makedirs
 from runlib.tmpfiles import TmpManager
 from sys import argv
-import inspect
 from bisect import bisect
 from datetime import datetime, timedelta
 from runlib.progress import Progress
